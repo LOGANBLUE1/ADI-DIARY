@@ -12,22 +12,22 @@ function CategoryItems() {
   const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
+    async function fetchItems() {
+      const { data, error } = await supabase
+        .from('item')
+        .select('*')
+        .eq('type', category)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.log(error)
+      } else {
+        setItems(data)
+      }
+    }
+
     fetchItems()
   }, [category])
-
-  async function fetchItems() {
-    const { data, error } = await supabase
-      .from('item')
-      .select('*')
-      .eq('type', category)
-      .order('created_at', { ascending: false })
-
-    if (error) {
-      console.log(error)
-    } else {
-      setItems(data)
-    }
-  }
 
   async function addItem() {
     if (!name) return
@@ -49,7 +49,14 @@ function CategoryItems() {
       setName('')
       setSubType('')
       setDescription('')
-      fetchItems()
+      // Re-fetch items after adding
+      const { data } = await supabase
+        .from('item')
+        .select('*')
+        .eq('type', category)
+        .order('created_at', { ascending: false })
+
+      if (data) setItems(data)
     }
   }
 

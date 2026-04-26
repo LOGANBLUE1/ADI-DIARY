@@ -13,26 +13,26 @@ function ItemDetail() {
     const [description, setDescription] = useState('')
 
     useEffect(() => {
+        async function fetchItem() {
+            const { data, error } = await supabase
+                .from('item')
+                .select('*')
+                .eq('id', id)
+                .single()
+
+            if (error) {
+                console.log(error)
+            } else {
+                setItem(data)
+                setName(data.name)
+                setType(data.type)
+                setSubType(data.sub_type)
+                setDescription(data.description || '')
+            }
+        }
+
         fetchItem()
     }, [id])
-
-    async function fetchItem() {
-        const { data, error } = await supabase
-            .from('item')
-            .select('*')
-            .eq('id', id)
-            .single()
-
-        if (error) {
-            console.log(error)
-        } else {
-            setItem(data)
-            setName(data.name)
-            setType(data.type)
-            setSubType(data.sub_type)
-            setDescription(data.description || '')
-        }
-    }
 
     async function updateItem() {
         const { error } = await supabase
@@ -49,7 +49,20 @@ function ItemDetail() {
             console.log(error)
         } else {
             setIsEditing(false)
-            fetchItem()
+            // Re-fetch to update the display
+            const { data } = await supabase
+                .from('item')
+                .select('*')
+                .eq('id', id)
+                .single()
+
+            if (data) {
+                setItem(data)
+                setName(data.name)
+                setType(data.type)
+                setSubType(data.sub_type)
+                setDescription(data.description || '')
+            }
         }
     }
 
