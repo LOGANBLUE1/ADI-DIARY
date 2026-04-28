@@ -4,6 +4,8 @@ import { supabase } from './../supabaseClient'
 
 function Categories() {
     const [categories, setCategories] = useState([])
+    const [categoryCounts, setCategoryCounts] = useState({})
+    const [totalItems, setTotalItems] = useState(0)
     const [newCategoryName, setNewCategoryName] = useState('')
     const [newCategoryDescription, setNewCategoryDescription] = useState('')
     const [newCategoryIcon, setNewCategoryIcon] = useState('📁')
@@ -20,6 +22,7 @@ function Categories() {
 
     useEffect(() => {
         fetchCategories()
+        fetchItemCounts()
     }, [])
 
     async function fetchCategories() {
@@ -37,6 +40,30 @@ function Categories() {
             console.log(error)
         } else {
             setCategories(data || [])
+        }
+    }
+
+    async function fetchItemCounts() {
+        const { data: { user } } = await supabase.auth.getUser()
+        
+        if (!user) return
+
+        // Fetch all items for this user
+        const { data: items, error } = await supabase
+            .from('item')
+            .select('type')
+            .eq('user_id', user.id)
+
+        if (error) {
+            console.log(error)
+        } else {
+            // Count items per category
+            const counts = {}
+            items?.forEach(item => {
+                counts[item.type] = (counts[item.type] || 0) + 1
+            })
+            setCategoryCounts(counts)
+            setTotalItems(items?.length || 0)
         }
     }
 
@@ -67,6 +94,7 @@ function Categories() {
             setNewCategoryIcon('📁')
             setIsAddingCategory(false)
             fetchCategories()
+            fetchItemCounts()
         }
     }
 
@@ -108,6 +136,7 @@ function Categories() {
                 alert('Error deleting category: ' + error.message)
             } else {
                 fetchCategories()
+                fetchItemCounts()
             }
         }
     }
@@ -215,6 +244,14 @@ function Categories() {
                         <div>
                             <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-2">🌟 All Categories</h2>
                             <p className="text-sm sm:text-base text-indigo-100">View and manage all your items</p>
+                            {totalItems > 0 && (
+                                <div className="mt-3 inline-flex items-center gap-2 bg-white/20 px-3 py-1.5 rounded-full">
+                                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
+                                    </svg>
+                                    <span className="font-semibold text-sm">{totalItems} {totalItems === 1 ? 'item' : 'items'}</span>
+                                </div>
+                            )}
                         </div>
                         <svg className="w-8 h-8 sm:w-12 sm:h-12 flex-shrink-0 ml-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
@@ -258,7 +295,16 @@ function Categories() {
                                         </svg>
                                     </div>
                                     <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-2 truncate" title={category.name}>{category.name}</h3>
-                                    <p className="text-gray-500 text-xs sm:text-sm line-clamp-2">{category.description || 'Click to view items'}</p>
+                                    <p className="text-gray-500 text-xs sm:text-sm line-clamp-2 mb-2">{category.description || 'Click to view items'}</p>
+                                    {/* Item Count Badge */}
+                                    <div className="flex items-center gap-2 mt-3">
+                                        <div className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full text-xs font-semibold">
+                                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                                                <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" />
+                                            </svg>
+                                            <span>{categoryCounts[category.name] || 0} {(categoryCounts[category.name] || 0) === 1 ? 'item' : 'items'}</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         ))}
