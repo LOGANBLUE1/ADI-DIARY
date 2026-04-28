@@ -70,6 +70,48 @@ function Categories() {
         }
     }
 
+    async function deleteCategory(categoryId, categoryName, e) {
+        e.stopPropagation() // Prevent navigation when clicking delete
+        
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+
+        // Check if category has items
+        const { data: items, error: itemsError } = await supabase
+            .from('item')
+            .select('id')
+            .eq('type', categoryName)
+            .eq('user_id', user.id)
+
+        if (itemsError) {
+            console.error('Error checking items:', itemsError)
+            alert('Error checking category items')
+            return
+        }
+
+        const itemCount = items?.length || 0
+        
+        let confirmMessage = `Are you sure you want to delete "${categoryName}"?`
+        if (itemCount > 0) {
+            confirmMessage = `This category contains ${itemCount} item${itemCount > 1 ? 's' : ''}. Deleting this category will NOT delete the items, but they will become uncategorized. Continue?`
+        }
+
+        if (window.confirm(confirmMessage)) {
+            const { error } = await supabase
+                .from('categories')
+                .delete()
+                .eq('id', categoryId)
+                .eq('user_id', user.id)
+
+            if (error) {
+                console.error('Error deleting category:', error)
+                alert('Error deleting category: ' + error.message)
+            } else {
+                fetchCategories()
+            }
+        }
+    }
+
     const handleCategoryClick = (categoryName) => {
         navigate(`/category/${encodeURIComponent(categoryName)}`)
     }
@@ -192,19 +234,32 @@ function Categories() {
                         {categories.map((category) => (
                             <div
                                 key={category.id}
-                                onClick={() => handleCategoryClick(category.name)}
-                                className="bg-white rounded-xl shadow-lg p-5 sm:p-6 border border-gray-200 cursor-pointer hover:shadow-2xl transition duration-200 active:scale-95 sm:hover:scale-105 group"
+                                className="bg-white rounded-xl shadow-lg p-5 sm:p-6 border border-gray-200 cursor-pointer hover:shadow-2xl transition duration-200 active:scale-95 sm:hover:scale-105 group relative"
                             >
-                                <div className="flex items-center justify-between mb-4">
-                                    <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full flex items-center justify-center text-xl sm:text-2xl flex-shrink-0">
-                                        {category.icon || '📁'}
-                                    </div>
-                                    <svg className="w-5 h-5 sm:w-6 sm:h-6 text-gray-400 group-hover:text-indigo-600 transition flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                {/* Delete Button */}
+                                <button
+                                    onClick={(e) => deleteCategory(category.id, category.name, e)}
+                                    className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 bg-red-500 hover:bg-red-600 text-white p-2 rounded-full shadow-lg transition-all duration-200 z-10"
+                                    title="Delete category"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                     </svg>
+                                </button>
+
+                                {/* Category Content */}
+                                <div onClick={() => handleCategoryClick(category.name)}>
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full flex items-center justify-center text-xl sm:text-2xl flex-shrink-0">
+                                            {category.icon || '📁'}
+                                        </div>
+                                        <svg className="w-5 h-5 sm:w-6 sm:h-6 text-gray-400 group-hover:text-indigo-600 transition flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                        </svg>
+                                    </div>
+                                    <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-2 truncate" title={category.name}>{category.name}</h3>
+                                    <p className="text-gray-500 text-xs sm:text-sm line-clamp-2">{category.description || 'Click to view items'}</p>
                                 </div>
-                                <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-2 truncate" title={category.name}>{category.name}</h3>
-                                <p className="text-gray-500 text-xs sm:text-sm line-clamp-2">{category.description || 'Click to view items'}</p>
                             </div>
                         ))}
                     </div>

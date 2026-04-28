@@ -78,7 +78,7 @@ function CategoryItems() {
     const fileExt = selectedImage.name.split('.').pop()
     const fileName = `${userId}/${Date.now()}.${fileExt}`
 
-    const { data, error } = await supabase.storage
+    const { error } = await supabase.storage
       .from('diary-images')
       .upload(fileName, selectedImage)
 
