@@ -11,6 +11,10 @@ function ItemDetail() {
     const [type, setType] = useState('')
     const [subType, setSubType] = useState('')
     const [description, setDescription] = useState('')
+    const [selectedImage, setSelectedImage] = useState(null)
+    const [imagePreview, setImagePreview] = useState(null)
+    const [uploading, setUploading] = useState(false)
+    const [removeExistingImage, setRemoveExistingImage] = useState(false)
 
     useEffect(() => {
         async function fetchItem() {
@@ -34,35 +38,121 @@ function ItemDetail() {
         fetchItem()
     }, [id])
 
-    async function updateItem() {
-        const { error } = await supabase
-            .from('item')
-            .update({
-                name,
-                type,
-                sub_type: subType,
-                description
-            })
-            .eq('id', id)
+    const handleImageSelect = (e) => {
+        const file = e.target.files[0]
+        if (file) {
+            if (file.size > 5 * 1024 * 1024) {
+                alert('File size must be less than 5MB')
+                return
+            }
+            setSelectedImage(file)
+            const reader = new FileReader()
+            reader.onloadend = () => {
+                setImagePreview(reader.result)
+            }
+            reader.readAsDataURL(file)
+            setRemoveExistingImage(false)
+        }
+    }
+
+    const removeNewImage = () => {
+        setSelectedImage(null)
+        setImagePreview(null)
+    }
+
+    const markImageForRemoval = () => {
+        setRemoveExistingImage(true)
+        setSelectedImage(null)
+        setImagePreview(null)
+    }
+
+    async function uploadImage(userId) {
+        if (!selectedImage) return null
+
+        const fileExt = selectedImage.name.split('.').pop()
+        const fileName = `${userId}/${Date.now()}.${fileExt}`
+
+        const { data, error } = await supabase.storage
+            .from('diary-images')
+            .upload(fileName, selectedImage)
 
         if (error) {
-            console.log(error)
-        } else {
-            setIsEditing(false)
-            // Re-fetch to update the display
-            const { data } = await supabase
-                .from('item')
-                .select('*')
-                .eq('id', id)
-                .single()
+            console.error('Error uploading image:', error)
+            throw error
+        }
 
-            if (data) {
-                setItem(data)
-                setName(data.name)
-                setType(data.type)
-                setSubType(data.sub_type)
-                setDescription(data.description || '')
+        const { data: { publicUrl } } = supabase.storage
+            .from('diary-images')
+            .getPublicUrl(fileName)
+
+        return publicUrl
+    }
+
+    async function updateItem() {
+        setUploading(true)
+        
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) {
+                alert('User not authenticated')
+                setUploading(false)
+                return
             }
+
+            let imageUrl = item.image_url
+
+            // Handle image removal
+            if (removeExistingImage) {
+                imageUrl = null
+            }
+
+            // Handle new image upload
+            if (selectedImage) {
+                imageUrl = await uploadImage(user.id)
+            }
+
+            const { error } = await supabase
+                .from('item')
+                .update({
+                    name,
+                    type,
+                    sub_type: subType,
+                    description,
+                    image_url: imageUrl
+                })
+                .eq('id', id)
+
+            if (error) {
+                console.error('Error updating item:', error)
+                alert('Error updating item: ' + error.message)
+            } else {
+                setIsEditing(false)
+                setSelectedImage(null)
+                setImagePreview(null)
+                setRemoveExistingImage(false)
+                
+                // Re-fetch to update the display
+                const { data } = await supabase
+                    .from('item')
+                    .select('*')
+                    .eq('id', id)
+                    .single()
+
+                if (data) {
+                    setItem(data)
+                    setName(data.name)
+                    setType(data.type)
+                    setSubType(data.sub_type)
+                    setDescription(data.description || '')
+                }
+                
+                alert('Item updated successfully! ✨')
+            }
+        } catch (error) {
+            console.error('Error:', error)
+            alert('Failed to update item. Please try again.')
+        } finally {
+            setUploading(false)
         }
     }
 
@@ -156,9 +246,10 @@ function ItemDetail() {
                                 <>
                                     <button
                                         onClick={updateItem}
-                                        className="bg-white text-indigo-600 px-4 py-2 rounded-lg font-semibold hover:bg-indigo-50 transition active:scale-95 touch-manipulation text-sm sm:text-base"
+                                        disabled={uploading}
+                                        className="bg-white text-indigo-600 px-4 py-2 rounded-lg font-semibold hover:bg-indigo-50 transition active:scale-95 touch-manipulation text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        💾 Save
+                                        {uploading ? '⏳ Saving...' : '💾 Save'}
                                     </button>
                                     <button
                                         onClick={() => {
@@ -167,8 +258,12 @@ function ItemDetail() {
                                             setType(item.type)
                                             setSubType(item.sub_type)
                                             setDescription(item.description || '')
+                                            setSelectedImage(null)
+                                            setImagePreview(null)
+                                            setRemoveExistingImage(false)
                                         }}
-                                        className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-semibold hover:bg-gray-300 transition active:scale-95 touch-manipulation text-sm sm:text-base"
+                                        disabled={uploading}
+                                        className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-semibold hover:bg-gray-300 transition active:scale-95 touch-manipulation text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         ❌ Cancel
                                     </button>
@@ -208,6 +303,20 @@ function ItemDetail() {
                                         )}
                                     </div>
                                 </div>
+
+                                {/* Image Display */}
+                                {item.image_url && (
+                                    <div>
+                                        <label className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wider">Image</label>
+                                        <div className="mt-2">
+                                            <img 
+                                                src={item.image_url} 
+                                                alt={item.name}
+                                                className="w-full max-h-96 object-contain rounded-lg border border-gray-200 shadow-md"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div>
                   <label className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wider">Created At</label>
@@ -258,8 +367,92 @@ function ItemDetail() {
                                         placeholder="Enter item description..."
                                     />
                                 </div>
+
+                                {/* Image Edit Section */}
+                                <div>
+                                    <label className="text-xs sm:text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2 block">📷 Image</label>
+                                    
+                                    {/* Show existing image */}
+                                    {item.image_url && !removeExistingImage && !imagePreview && (
+                                        <div className="mt-2 relative">
+                                            <img 
+                                                src={item.image_url} 
+                                                alt={item.name}
+                                                className="w-full max-h-64 object-contain rounded-lg border border-gray-200 shadow-sm"
+                                            />
+                                            <div className="mt-2 flex gap-2">
+                                                <label className="flex-1 bg-indigo-50 text-indigo-600 px-4 py-2 rounded-lg font-semibold hover:bg-indigo-100 transition cursor-pointer text-center text-sm">
+                                                    🔄 Change Image
+                                                    <input
+                                                        type="file"
+                                                        accept="image/*"
+                                                        onChange={handleImageSelect}
+                                                        className="hidden"
+                                                    />
+                                                </label>
+                                                <button
+                                                    onClick={markImageForRemoval}
+                                                    type="button"
+                                                    className="bg-red-50 text-red-600 px-4 py-2 rounded-lg font-semibold hover:bg-red-100 transition text-sm"
+                                                >
+                                                    🗑️ Remove
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Show new image preview */}
+                                    {imagePreview && (
+                                        <div className="mt-2 relative">
+                                            <img 
+                                                src={imagePreview} 
+                                                alt="New preview"
+                                                className="w-full max-h-64 object-contain rounded-lg border border-gray-300 shadow-sm"
+                                            />
+                                            <button
+                                                onClick={removeNewImage}
+                                                type="button"
+                                                className="mt-2 w-full bg-red-50 text-red-600 px-4 py-2 rounded-lg font-semibold hover:bg-red-100 transition text-sm"
+                                            >
+                                                ❌ Cancel New Image
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Show upload interface if no image */}
+                                    {(!item.image_url || removeExistingImage) && !imagePreview && (
+                                        <label className="mt-2 flex items-center justify-center w-full px-4 py-6 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-indigo-500 transition">
+                                            <div className="text-center">
+                                                <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                                                    <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                                </svg>
+                                                <p className="mt-2 text-sm text-gray-600">Click to upload image</p>
+                                                <p className="text-xs text-gray-500">PNG, JPG up to 5MB</p>
+                                            </div>
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={handleImageSelect}
+                                                className="hidden"
+                                            />
+                                        </label>
+                                    )}
+
+                                    {removeExistingImage && !imagePreview && (
+                                        <div className="mt-2 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                                            ⚠️ Image will be removed when you save
+                                            <button
+                                                onClick={() => setRemoveExistingImage(false)}
+                                                type="button"
+                                                className="ml-2 underline hover:no-underline"
+                                            >
+                                                Undo
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        )}
+                        )}  
                     </div>
                 </div>
             </div>

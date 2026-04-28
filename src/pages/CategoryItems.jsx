@@ -10,6 +10,9 @@ function CategoryItems() {
   const [subType, setSubType] = useState('')
   const [description, setDescription] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [selectedImage, setSelectedImage] = useState(null)
+  const [imagePreview, setImagePreview] = useState(null)
+  const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
     async function fetchItems() {
@@ -34,48 +37,109 @@ function CategoryItems() {
     fetchItems()
   }, [category])
 
+  const handleImageSelect = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        alert('File size must be less than 5MB')
+        return
+      }
+      setSelectedImage(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setImagePreview(reader.result)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const removeImage = () => {
+    setSelectedImage(null)
+    setImagePreview(null)
+  }
+
+  async function uploadImage(userId) {
+    if (!selectedImage) return null
+
+    const fileExt = selectedImage.name.split('.').pop()
+    const fileName = `${userId}/${Date.now()}.${fileExt}`
+
+    const { data, error } = await supabase.storage
+      .from('diary-images')
+      .upload(fileName, selectedImage)
+
+    if (error) {
+      console.error('Error uploading image:', error)
+      throw error
+    }
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('diary-images')
+      .getPublicUrl(fileName)
+
+    return publicUrl
+  }
+
   async function addItem() {
     if (!name) {
       alert('Please enter a name for the item')
       return
     }
 
+    setUploading(true)
     const { data: { user } } = await supabase.auth.getUser()
     
     if (!user) {
       alert('User not authenticated')
+      setUploading(false)
       return
     }
 
-    const { error } = await supabase
-      .from('item')
-      .insert([
-        {
-          name,
-          type: category,
-          sub_type: subType,
-          description,
-          user_id: user.id
-        }
-      ])
+    try {
+      // Upload image if selected
+      let imageUrl = null
+      if (selectedImage) {
+        imageUrl = await uploadImage(user.id)
+      }
 
-    if (error) {
-      console.error('Error adding item:', error)
-      alert(`Error creating item: ${error.message}\n\nHave you run the database migration SQL commands? Check the console for details.`)
-    } else {
-      setName('')
-      setSubType('')
-      setDescription('')
-      alert('Item created successfully! ✨')
-      // Re-fetch items after adding
-      const { data } = await supabase
+      const { error } = await supabase
         .from('item')
-        .select('*')
-        .eq('type', category)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
+        .insert([
+          {
+            name,
+            type: category,
+            sub_type: subType,
+            description,
+            user_id: user.id,
+            image_url: imageUrl
+          }
+        ])
 
-      if (data) setItems(data)
+      if (error) {
+        console.error('Error adding item:', error)
+        alert(`Error creating item: ${error.message}\n\nHave you run the database migration SQL commands? Check the console for details.`)
+      } else {
+        setName('')
+        setSubType('')
+        setDescription('')
+        removeImage()
+        alert('Item created successfully! ✨')
+        // Re-fetch items after adding
+        const { data } = await supabase
+          .from('item')
+          .select('*')
+          .eq('type', category)
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+
+        if (data) setItems(data)
+      }
+    } catch (error) {
+      console.error('Error:', error)
+      alert('Failed to create item. Please try again.')
+    } finally {
+      setUploading(false)
     }
   }
 
@@ -138,11 +202,55 @@ function CategoryItems() {
             rows={3}
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition resize-none mb-3 sm:mb-4 text-sm sm:text-base"
           />
+          
+          {/* Image Upload Section */}
+          <div className="mb-3 sm:mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              📷 Add Image (optional)
+            </label>
+            
+            {!imagePreview ? (
+              <label className="flex items-center justify-center w-full px-4 py-6 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-indigo-500 transition">
+                <div className="text-center">
+                  <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                    <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <p className="mt-2 text-sm text-gray-600">Click to upload image</p>
+                  <p className="text-xs text-gray-500">PNG, JPG up to 5MB</p>
+                </div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageSelect}
+                  className="hidden"
+                />
+              </label>
+            ) : (
+              <div className="relative">
+                <img 
+                  src={imagePreview} 
+                  alt="Preview" 
+                  className="w-full h-48 object-cover rounded-lg border border-gray-300"
+                />
+                <button
+                  onClick={removeImage}
+                  className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-2 shadow-lg transition"
+                  type="button"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={addItem}
-            className="w-full sm:w-auto bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold px-6 sm:px-8 py-3 rounded-lg shadow-md hover:shadow-lg transition duration-200 active:scale-95 sm:hover:scale-105 touch-manipulation text-sm sm:text-base"
+            disabled={uploading}
+            className="w-full sm:w-auto bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-semibold px-6 sm:px-8 py-3 rounded-lg shadow-md hover:shadow-lg transition duration-200 active:scale-95 sm:hover:scale-105 touch-manipulation text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            ✨ Add Item
+            {uploading ? '⏳ Uploading...' : '✨ Add Item'}
           </button>
         </div>
 
@@ -191,9 +299,20 @@ function CategoryItems() {
                   onClick={() => navigate(`/item/${item.id}`)}
                   className="flex items-center p-3 sm:p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-100 hover:shadow-md transition duration-200 active:scale-95 sm:hover:scale-[1.02] cursor-pointer"
                 >
-                  <div className="flex-shrink-0 w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-full flex items-center justify-center font-bold mr-3 sm:mr-4 text-sm sm:text-base">
-                    {index + 1}
-                  </div>
+                  {/* Image Thumbnail */}
+                  {item.image_url ? (
+                    <div className="flex-shrink-0 w-16 h-16 sm:w-20 sm:h-20 mr-3 sm:mr-4 rounded-lg overflow-hidden border-2 border-indigo-200">
+                      <img 
+                        src={item.image_url} 
+                        alt={item.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex-shrink-0 w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-full flex items-center justify-center font-bold mr-3 sm:mr-4 text-sm sm:text-base">
+                      {index + 1}
+                    </div>
+                  )}
                   <div className="flex-grow min-w-0">
                     <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-sm sm:text-base md:text-lg text-gray-800">
                       <span className="font-semibold break-words">{item.name}</span>
