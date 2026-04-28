@@ -12,17 +12,40 @@ import Error from "./pages/Error"
 
 const App = () => {
   const [session, setSession] = useState(null)
+  const [loading, setLoading] = useState(true)
+  
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
+    // Check for existing session on mount
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+      setLoading(false)
     })
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, session) => setSession(session)
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session)
+        setLoading(false)
+      }
     )
 
-    return () => listener.subscription.unsubscribe()
+    return () => subscription.unsubscribe()
   }, [])
+
+  // Show loading state while checking for session
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block bg-gradient-to-r from-indigo-600 to-purple-600 p-4 rounded-2xl shadow-lg mb-4 animate-pulse">
+            <span className="text-5xl">📔</span>
+          </div>
+          <p className="text-gray-600 text-lg">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
   if (!session) return <Login />
   return (
       <div className="min-h-screen bg-gray-50">

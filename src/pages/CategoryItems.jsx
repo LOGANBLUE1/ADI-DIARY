@@ -13,10 +13,15 @@ function CategoryItems() {
 
   useEffect(() => {
     async function fetchItems() {
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) return
+
       const { data, error } = await supabase
         .from('item')
         .select('*')
         .eq('type', category)
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
       if (error) {
@@ -30,7 +35,17 @@ function CategoryItems() {
   }, [category])
 
   async function addItem() {
-    if (!name) return
+    if (!name) {
+      alert('Please enter a name for the item')
+      return
+    }
+
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (!user) {
+      alert('User not authenticated')
+      return
+    }
 
     const { error } = await supabase
       .from('item')
@@ -39,21 +54,25 @@ function CategoryItems() {
           name,
           type: category,
           sub_type: subType,
-          description
+          description,
+          user_id: user.id
         }
       ])
 
     if (error) {
-      console.log(error)
+      console.error('Error adding item:', error)
+      alert(`Error creating item: ${error.message}\n\nHave you run the database migration SQL commands? Check the console for details.`)
     } else {
       setName('')
       setSubType('')
       setDescription('')
+      alert('Item created successfully! ✨')
       // Re-fetch items after adding
       const { data } = await supabase
         .from('item')
         .select('*')
         .eq('type', category)
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
       if (data) setItems(data)

@@ -6,8 +6,17 @@ const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false)
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
-    setIsOpen(false)
+    try {
+      const { error } = await supabase.auth.signOut()
+      if (error) {
+        console.error('Error signing out:', error)
+      }
+      setIsOpen(false)
+      // Session is automatically cleared from localStorage by Supabase
+      // The App component will detect the auth state change and show Login
+    } catch (error) {
+      console.error('Unexpected error during logout:', error)
+    }
   }
 
   return (
