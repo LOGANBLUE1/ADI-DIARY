@@ -6,8 +6,17 @@ function Categories() {
     const [categories, setCategories] = useState([])
     const [newCategoryName, setNewCategoryName] = useState('')
     const [newCategoryDescription, setNewCategoryDescription] = useState('')
+    const [newCategoryIcon, setNewCategoryIcon] = useState('📁')
     const [isAddingCategory, setIsAddingCategory] = useState(false)
     const navigate = useNavigate()
+
+    // Popular emoji options for categories
+    const emojiOptions = [
+        '📁', '📚', '✈️', '🍔', '💼', '🏠', '🎮', '🎵',
+        '🎨', '💪', '🏃', '📝', '💻', '📱', '🎬', '📷',
+        '🌟', '❤️', '🎉', '🎓', '🏆', '💡', '🔧', '🛒',
+        '🌺', '🌈', '☕', '🍕', '🎯', '🚀', '⚽', '🎸'
+    ]
 
     useEffect(() => {
         fetchCategories()
@@ -44,6 +53,7 @@ function Categories() {
                 {
                     name: newCategoryName.trim(),
                     description: newCategoryDescription.trim(),
+                    icon: newCategoryIcon,
                     user_id: user.id
                 }
             ])
@@ -54,6 +64,7 @@ function Categories() {
         } else {
             setNewCategoryName('')
             setNewCategoryDescription('')
+            setNewCategoryIcon('📁')
             setIsAddingCategory(false)
             fetchCategories()
         }
@@ -92,6 +103,29 @@ function Categories() {
                         <div>
                             <h2 className="text-xl sm:text-2xl font-semibold text-gray-800 mb-4">Create New Category</h2>
                             <div className="space-y-3 sm:space-y-4">
+                                {/* Emoji Picker */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Choose an Icon
+                                    </label>
+                                    <div className="grid grid-cols-8 sm:grid-cols-10 md:grid-cols-12 gap-2">
+                                        {emojiOptions.map((emoji) => (
+                                            <button
+                                                key={emoji}
+                                                type="button"
+                                                onClick={() => setNewCategoryIcon(emoji)}
+                                                className={`text-2xl sm:text-3xl p-2 sm:p-3 rounded-lg transition duration-200 hover:scale-110 ${
+                                                    newCategoryIcon === emoji
+                                                        ? 'bg-indigo-100 ring-2 ring-indigo-500 shadow-md'
+                                                        : 'bg-gray-50 hover:bg-gray-100'
+                                                }`}
+                                            >
+                                                {emoji}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                
                                 <input
                                     value={newCategoryName}
                                     onChange={(e) => setNewCategoryName(e.target.value)}
@@ -118,6 +152,7 @@ function Categories() {
                                             setIsAddingCategory(false)
                                             setNewCategoryName('')
                                             setNewCategoryDescription('')
+                                            setNewCategoryIcon('📁')
                                         }}
                                         className="px-6 py-3 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition duration-200 active:scale-95 text-sm sm:text-base"
                                     >
@@ -162,7 +197,7 @@ function Categories() {
                             >
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full flex items-center justify-center text-xl sm:text-2xl flex-shrink-0">
-                                        📁
+                                        {category.icon || '📁'}
                                     </div>
                                     <svg className="w-5 h-5 sm:w-6 sm:h-6 text-gray-400 group-hover:text-indigo-600 transition flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

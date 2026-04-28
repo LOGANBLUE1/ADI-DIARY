@@ -6,6 +6,7 @@ function CategoryItems() {
   const { category } = useParams()
   const navigate = useNavigate()
   const [items, setItems] = useState([])
+  const [categoryIcon, setCategoryIcon] = useState('📁')
   const [name, setName] = useState('')
   const [subType, setSubType] = useState('')
   const [description, setDescription] = useState('')
@@ -15,11 +16,24 @@ function CategoryItems() {
   const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
-    async function fetchItems() {
+    async function fetchData() {
       const { data: { user } } = await supabase.auth.getUser()
       
       if (!user) return
 
+      // Fetch category icon
+      const { data: categoryData } = await supabase
+        .from('categories')
+        .select('icon')
+        .eq('name', category)
+        .eq('user_id', user.id)
+        .single()
+
+      if (categoryData?.icon) {
+        setCategoryIcon(categoryData.icon)
+      }
+
+      // Fetch items
       const { data, error } = await supabase
         .from('item')
         .select('*')
@@ -34,7 +48,7 @@ function CategoryItems() {
       }
     }
 
-    fetchItems()
+    fetchData()
   }, [category])
 
   const handleImageSelect = (e) => {
@@ -174,7 +188,7 @@ function CategoryItems() {
             </svg>
             <span className="text-sm sm:text-base">Back to Categories</span>
           </button>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800 mb-2 break-words">📁 {category}</h1>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800 mb-2 break-words">{categoryIcon} {category}</h1>
           <p className="text-sm sm:text-base text-gray-600">Manage items in this category</p>
         </div>
 
