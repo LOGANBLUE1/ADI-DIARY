@@ -66,6 +66,35 @@ function ItemDetail() {
         setImagePreview(null)
     }
 
+    // Extract file path from image URL for deletion
+    const getImagePathFromUrl = (imageUrl) => {
+        if (!imageUrl) return null
+        try {
+            const url = new URL(imageUrl)
+            const pathParts = url.pathname.split('/diary-images/')
+            return pathParts[1] || null
+        } catch (error) {
+            console.error('Error parsing image URL:', error)
+            return null
+        }
+    }
+
+    // Delete image from storage
+    async function deleteImageFromStorage(imageUrl) {
+        if (!imageUrl) return
+        
+        const filePath = getImagePathFromUrl(imageUrl)
+        if (!filePath) return
+
+        const { error } = await supabase.storage
+            .from('diary-images')
+            .remove([filePath])
+
+        if (error) {
+            console.error('Error deleting image from storage:', error)
+        }
+    }
+
     async function uploadImage(userId) {
         if (!selectedImage) return null
 
@@ -100,14 +129,23 @@ function ItemDetail() {
             }
 
             let imageUrl = item.image_url
+            const oldImageUrl = item.image_url
 
             // Handle image removal
             if (removeExistingImage) {
+                // Delete old image from storage
+                if (oldImageUrl) {
+                    await deleteImageFromStorage(oldImageUrl)
+                }
                 imageUrl = null
             }
 
             // Handle new image upload
             if (selectedImage) {
+                // Delete old image from storage before uploading new one
+                if (oldImageUrl) {
+                    await deleteImageFromStorage(oldImageUrl)
+                }
                 imageUrl = await uploadImage(user.id)
             }
 
@@ -158,15 +196,27 @@ function ItemDetail() {
 
     async function deleteItem() {
         if (window.confirm('Are you sure you want to delete this item?')) {
-            const { error } = await supabase
-                .from('item')
-                .delete()
-                .eq('id', id)
+            try {
+                // Delete image from storage first if exists
+                if (item.image_url) {
+                    await deleteImageFromStorage(item.image_url)
+                }
 
-            if (error) {
-                console.log(error)
-            } else {
-                navigate(-1)
+                // Delete item from database
+                const { error } = await supabase
+                    .from('item')
+                    .delete()
+                    .eq('id', id)
+
+                if (error) {
+                    console.error('Error deleting item:', error)
+                    alert('Error deleting item: ' + error.message)
+                } else {
+                    navigate(-1)
+                }
+            } catch (error) {
+                console.error('Error:', error)
+                alert('Failed to delete item. Please try again.')
             }
         }
     }
