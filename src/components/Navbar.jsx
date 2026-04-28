@@ -1,8 +1,14 @@
 import { Link } from "react-router-dom"
 import { useState } from "react"
+import { supabase } from "../supabaseClient"
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false)
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    setIsOpen(false)
+  }
 
   return (
     <nav className="bg-gradient-to-r from-indigo-600 to-purple-600 shadow-lg sticky top-0 z-50">
@@ -27,6 +33,12 @@ const Navbar = () => {
             >
               All Items
             </Link>
+            <button
+              onClick={handleLogout}
+              className="text-white hover:bg-white hover:bg-opacity-20 px-4 py-2 rounded-lg transition duration-200 font-medium"
+            >
+              Logout
+            </button>
           </div>
 
           {/* Mobile Hamburger Button */}
@@ -62,6 +74,12 @@ const Navbar = () => {
             >
               All Items
             </Link>
+            <button
+              onClick={handleLogout}
+              className="block w-full text-left text-white hover:bg-white hover:bg-opacity-20 px-4 py-3 rounded-lg transition duration-200 font-medium"
+            >
+              Logout
+            </button>
           </div>
         )}
       </div>
