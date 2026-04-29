@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from './../supabaseClient'
+import TagInput from '../components/TagInput'
 
 function CategoryItems() {
   const { category } = useParams()
@@ -10,7 +11,11 @@ function CategoryItems() {
   const [name, setName] = useState('')
   const [subType, setSubType] = useState('')
   const [description, setDescription] = useState('')
+  const [tags, setTags] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [selectedTags, setSelectedTags] = useState([])
+  const [filterMode, setFilterMode] = useState('OR') // 'AND' or 'OR'
+  const [sortBy, setSortBy] = useState('date') // 'date' or 'tags'
   const [selectedImage, setSelectedImage] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
   const [uploading, setUploading] = useState(false)
@@ -126,7 +131,8 @@ function CategoryItems() {
             sub_type: subType,
             description,
             user_id: user.id,
-            image_url: imageUrl
+            image_url: imageUrl,
+            tags
           }
         ])
 
@@ -137,6 +143,7 @@ function CategoryItems() {
         setName('')
         setSubType('')
         setDescription('')
+        setTags([])
         removeImage()
         alert('Item created successfully! ✨')
         // Re-fetch items after adding
@@ -157,11 +164,68 @@ function CategoryItems() {
     }
   }
 
-  const filteredItems = items.filter(item =>
-    item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.sub_type.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase()))
-  )
+  // Extract all unique tags with counts
+  const allTags = items.reduce((acc, item) => {
+    if (item.tags && item.tags.length > 0) {
+      item.tags.forEach(tag => {
+        if (acc[tag]) {
+          acc[tag]++
+        } else {
+          acc[tag] = 1
+        }
+      })
+    }
+    return acc
+  }, {})
+
+  const sortedTags = Object.entries(allTags)
+    .sort((a, b) => b[1] - a[1]) // Sort by count descending
+    .map(([tag, count]) => ({ tag, count }))
+
+  // Toggle tag selection
+  const toggleTag = (tag) => {
+    setSelectedTags(prev => 
+      prev.includes(tag) 
+        ? prev.filter(t => t !== tag)
+        : [...prev, tag]
+    )
+  }
+
+  // Clear all tag filters
+  const clearTagFilters = () => {
+    setSelectedTags([])
+  }
+
+  // Filter logic
+  let filteredItems = items.filter(item => {
+    // Text search filter
+    const matchesSearch = searchQuery === '' ||
+      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.sub_type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (item.tags && item.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())))
+
+    // Tag filter
+    if (selectedTags.length === 0) {
+      return matchesSearch
+    }
+
+    const itemTags = item.tags || []
+    const matchesTags = filterMode === 'AND'
+      ? selectedTags.every(tag => itemTags.includes(tag))
+      : selectedTags.some(tag => itemTags.includes(tag))
+
+    return matchesSearch && matchesTags
+  })
+
+  // Sort logic
+  if (sortBy === 'tags') {
+    filteredItems = [...filteredItems].sort((a, b) => {
+      const aTagCount = (a.tags || []).length
+      const bTagCount = (b.tags || []).length
+      return bTagCount - aTagCount
+    })
+  }
 
   const formatDate = (dateString) => {
     const date = new Date(dateString)
@@ -216,6 +280,18 @@ function CategoryItems() {
             rows={3}
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition resize-none mb-3 sm:mb-4 text-sm sm:text-base"
           />
+          
+          {/* Tags Input */}
+          <div className="mb-3 sm:mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              🏷️ Tags (optional)
+            </label>
+            <TagInput
+              tags={tags}
+              onChange={setTags}
+              placeholder="Add tags to organize this item..."
+            />
+          </div>
           
           {/* Image Upload Section */}
           <div className="mb-3 sm:mb-4">
@@ -288,6 +364,99 @@ function CategoryItems() {
           </div>
         </div>
 
+        {/* Tag Filter Cloud */}
+        {sortedTags.length > 0 && (
+          <div className="bg-white rounded-xl shadow-lg p-4 sm:p-6 mb-6 sm:mb-8 border border-gray-200">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3">
+              <h2 className="text-lg sm:text-xl font-semibold text-gray-800">
+                🏷️ Filter by Tags
+                {selectedTags.length > 0 && (
+                  <span className="ml-2 text-sm font-normal text-indigo-600">
+                    ({selectedTags.length} selected)
+                  </span>
+                )}
+              </h2>
+              <div className="flex items-center gap-2 sm:gap-3">
+                {/* Filter Mode Toggle */}
+                {selectedTags.length > 1 && (
+                  <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+                    <button
+                      onClick={() => setFilterMode('OR')}
+                      className={`px-3 py-1 rounded text-xs sm:text-sm font-medium transition ${
+                        filterMode === 'OR'
+                          ? 'bg-indigo-600 text-white shadow'
+                          : 'text-gray-600 hover:text-gray-800'
+                      }`}
+                    >
+                      OR
+                    </button>
+                    <button
+                      onClick={() => setFilterMode('AND')}
+                      className={`px-3 py-1 rounded text-xs sm:text-sm font-medium transition ${
+                        filterMode === 'AND'
+                          ? 'bg-indigo-600 text-white shadow'
+                          : 'text-gray-600 hover:text-gray-800'
+                      }`}
+                    >
+                      AND
+                    </button>
+                  </div>
+                )}
+                {/* Sort Toggle */}
+                <button
+                  onClick={() => setSortBy(sortBy === 'date' ? 'tags' : 'date')}
+                  className="px-3 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-xs sm:text-sm font-medium hover:bg-purple-200 transition"
+                >
+                  Sort: {sortBy === 'date' ? '📅 Date' : '🏷️ Tags'}
+                </button>
+                {/* Clear Filters */}
+                {selectedTags.length > 0 && (
+                  <button
+                    onClick={clearTagFilters}
+                    className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-xs sm:text-sm font-medium hover:bg-red-200 transition"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Tag Cloud */}
+            <div className="flex flex-wrap gap-2">
+              {sortedTags.map(({ tag, count }) => {
+                const isSelected = selectedTags.includes(tag)
+                return (
+                  <button
+                    key={tag}
+                    onClick={() => toggleTag(tag)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white shadow-md scale-105'
+                        : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:scale-105'
+                    }`}
+                  >
+                    <span>#{tag}</span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                      isSelected ? 'bg-indigo-500' : 'bg-indigo-200'
+                    }`}>
+                      {count}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Filter explanation */}
+            {selectedTags.length > 1 && (
+              <p className="mt-3 text-xs text-gray-500">
+                {filterMode === 'OR' 
+                  ? 'Showing items with ANY of the selected tags' 
+                  : 'Showing items with ALL selected tags'}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Items List */}
         <div className="bg-white rounded-xl shadow-lg p-4 sm:p-6 border border-gray-200">
           <h2 className="text-xl sm:text-2xl font-semibold text-gray-800 mb-4">
@@ -335,6 +504,31 @@ function CategoryItems() {
                     </div>
                     {item.description && (
                       <p className="text-xs sm:text-sm text-gray-500 mt-1 line-clamp-2">{item.description}</p>
+                    )}
+                    {item.tags && item.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {item.tags.slice(0, 3).map((tag, idx) => (
+                          <button
+                            key={idx}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleTag(tag)
+                            }}
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium transition-all ${
+                              selectedTags.includes(tag)
+                                ? 'bg-indigo-600 text-white shadow'
+                                : 'bg-indigo-100 text-indigo-800 hover:bg-indigo-200'
+                            }`}
+                          >
+                            #{tag}
+                          </button>
+                        ))}
+                        {item.tags.length > 3 && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                            +{item.tags.length - 3} more
+                          </span>
+                        )}
+                      </div>
                     )}
                     <p className="text-xs text-gray-400 mt-1">
                       📅 {formatDate(item.created_at)}

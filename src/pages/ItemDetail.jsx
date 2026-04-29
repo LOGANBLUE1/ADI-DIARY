@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from './../supabaseClient'
+import TagInput from '../components/TagInput'
 
 function ItemDetail() {
     const { id } = useParams()
@@ -11,6 +12,7 @@ function ItemDetail() {
     const [type, setType] = useState('')
     const [subType, setSubType] = useState('')
     const [description, setDescription] = useState('')
+    const [tags, setTags] = useState([])
     const [selectedImage, setSelectedImage] = useState(null)
     const [imagePreview, setImagePreview] = useState(null)
     const [uploading, setUploading] = useState(false)
@@ -32,6 +34,7 @@ function ItemDetail() {
                 setType(data.type)
                 setSubType(data.sub_type)
                 setDescription(data.description || '')
+                setTags(data.tags || [])
             }
         }
 
@@ -156,7 +159,8 @@ function ItemDetail() {
                     type,
                     sub_type: subType,
                     description,
-                    image_url: imageUrl
+                    image_url: imageUrl,
+                    tags
                 })
                 .eq('id', id)
 
@@ -182,6 +186,7 @@ function ItemDetail() {
                     setType(data.type)
                     setSubType(data.sub_type)
                     setDescription(data.description || '')
+                    setTags(data.tags || [])
                 }
                 
                 alert('Item updated successfully! ✨')
@@ -308,6 +313,7 @@ function ItemDetail() {
                                             setType(item.type)
                                             setSubType(item.sub_type)
                                             setDescription(item.description || '')
+                                            setTags(item.tags || [])
                                             setSelectedImage(null)
                                             setImagePreview(null)
                                             setRemoveExistingImage(false)
@@ -368,6 +374,23 @@ function ItemDetail() {
                                     </div>
                                 )}
 
+                                {/* Tags Display */}
+                                {item.tags && item.tags.length > 0 && (
+                                    <div>
+                                        <label className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wider">Tags</label>
+                                        <div className="mt-2 flex flex-wrap gap-2">
+                                            {item.tags.map((tag, index) => (
+                                                <span
+                                                    key={index}
+                                                    className="inline-flex items-center gap-1.5 bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full text-sm font-medium"
+                                                >
+                                                    <span>#{tag}</span>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div>
                   <label className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wider">Created At</label>
                   <p className="mt-2 text-sm sm:text-base md:text-lg text-gray-800 flex items-center">
@@ -416,6 +439,18 @@ function ItemDetail() {
                                         className="mt-2 w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition resize-none text-sm sm:text-base"
                                         placeholder="Enter item description..."
                                     />
+                                </div>
+
+                                {/* Tags Input */}
+                                <div>
+                                    <label className="text-xs sm:text-sm font-semibold text-gray-700 uppercase tracking-wider">\ud83c\udff7\ufe0f Tags</label>
+                                    <div className="mt-2">
+                                        <TagInput
+                                            tags={tags}
+                                            onChange={setTags}
+                                            placeholder="Add tags to organize this item..."
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Image Edit Section */}
