@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from './../supabaseClient'
 import TagInput from '../components/TagInput'
+import { exportToJSON, exportToCSV, getExportFilename } from '../utils/exportUtils'
 
 function CategoryItems() {
   const { category } = useParams()
@@ -447,6 +448,32 @@ function CategoryItems() {
               >
                 {showArchived ? '📦 Showing Archived' : '📋 Show Active Only'}
               </button>
+              
+              {/* Export Buttons */}
+              <div className="flex gap-1 border-l pl-2">
+                <button
+                  onClick={() => {
+                    const filename = getExportFilename(`${category}_items`, filteredItems.length)
+                    exportToJSON(filteredItems, filename)
+                    alert(`Exported ${filteredItems.length} items from ${category} as JSON`)
+                  }}
+                  className="px-3 py-2 bg-green-500 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-green-600 transition active:scale-95"
+                  title="Export as JSON"
+                >
+                  📥 JSON
+                </button>
+                <button
+                  onClick={() => {
+                    const filename = getExportFilename(`${category}_items`, filteredItems.length)
+                    exportToCSV(filteredItems, filename)
+                    alert(`Exported ${filteredItems.length} items from ${category} as CSV`)
+                  }}
+                  className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-green-700 transition active:scale-95"
+                  title="Export as CSV"
+                >
+                  📥 CSV
+                </button>
+              </div>
             </div>
           </div>
         </div>

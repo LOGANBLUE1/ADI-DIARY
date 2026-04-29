@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from './../supabaseClient'
+import { exportToJSON, exportToCSV, getExportFilename } from '../utils/exportUtils'
 
 function Home() {
   const navigate = useNavigate()
@@ -299,6 +300,32 @@ function Home() {
               >
                 {showArchived ? '📦 Showing Archived' : '📋 Show Active Only'}
               </button>
+              
+              {/* Export Buttons */}
+              <div className="flex gap-1 border-l pl-2">
+                <button
+                  onClick={() => {
+                    const filename = getExportFilename('all_items', filteredUsers.length)
+                    exportToJSON(filteredUsers, filename)
+                    alert(`Exported ${filteredUsers.length} items as JSON`)
+                  }}
+                  className="px-3 py-2 bg-green-500 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-green-600 transition active:scale-95"
+                  title="Export as JSON"
+                >
+                  📥 JSON
+                </button>
+                <button
+                  onClick={() => {
+                    const filename = getExportFilename('all_items', filteredUsers.length)
+                    exportToCSV(filteredUsers, filename)
+                    alert(`Exported ${filteredUsers.length} items as CSV`)
+                  }}
+                  className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-green-700 transition active:scale-95"
+                  title="Export as CSV"
+                >
+                  📥 CSV
+                </button>
+              </div>
             </div>
           </div>
         </div>
