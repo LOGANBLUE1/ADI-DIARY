@@ -41,6 +41,42 @@ function ItemDetail() {
         fetchItem()
     }, [id])
 
+    async function toggleArchive() {
+        const newArchivedState = !item.archived
+        const action = newArchivedState ? 'archive' : 'unarchive'
+        
+        if (window.confirm(`Are you sure you want to ${action} this item?`)) {
+            const { error } = await supabase
+                .from('item')
+                .update({ archived: newArchivedState })
+                .eq('id', id)
+
+            if (error) {
+                console.error(`Error ${action}ing item:`, error)
+                alert(`Error ${action}ing item: ` + error.message)
+            } else {
+                setItem({ ...item, archived: newArchivedState })
+                alert(`Item ${newArchivedState ? 'archived' : 'unarchived'} successfully!`)
+            }
+        }
+    }
+
+    async function toggleFavorite() {
+        const newFavoriteState = !item.favorite
+        
+        const { error } = await supabase
+            .from('item')
+            .update({ favorite: newFavoriteState })
+            .eq('id', id)
+
+        if (error) {
+            console.error('Error toggling favorite:', error)
+            alert('Error toggling favorite: ' + error.message)
+        } else {
+            setItem({ ...item, favorite: newFavoriteState })
+        }
+    }
+
     const handleImageSelect = (e) => {
         const file = e.target.files[0]
         if (file) {
@@ -269,7 +305,23 @@ function ItemDetail() {
                     {/* Header Section */}
                     <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 sm:p-6">
                         <div className="text-white mb-4">
-                            <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-2 break-words">{item.name}</h2>
+                            <div className="flex items-center gap-3 mb-2">
+                                <h2 className="text-xl sm:text-2xl md:text-3xl font-bold break-words flex-grow">{item.name}</h2>
+                                <button
+                                    onClick={toggleFavorite}
+                                    className="flex-shrink-0 p-2 hover:bg-white/20 rounded-lg transition active:scale-95 touch-manipulation"
+                                    title={item.favorite ? 'Remove from favorites' : 'Add to favorites'}
+                                >
+                                    <svg className="w-6 h-6 sm:w-7 sm:h-7" fill={item.favorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                                    </svg>
+                                </button>
+                                {item.archived && (
+                                    <span className="px-3 py-1 bg-yellow-400 text-yellow-900 rounded-full text-xs sm:text-sm font-semibold">
+                                        📦 Archived
+                                    </span>
+                                )}
+                            </div>
                             <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-indigo-100">
                   <span className="flex items-center">
                     <svg className="w-4 h-4 sm:w-5 sm:h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -289,6 +341,16 @@ function ItemDetail() {
                                         className="bg-white text-indigo-600 px-4 py-2 rounded-lg font-semibold hover:bg-indigo-50 transition active:scale-95 touch-manipulation text-sm sm:text-base"
                                     >
                                         ✏️ Edit
+                                    </button>
+                                    <button
+                                        onClick={toggleArchive}
+                                        className={`px-4 py-2 rounded-lg font-semibold transition active:scale-95 touch-manipulation text-sm sm:text-base ${
+                                            item.archived 
+                                                ? 'bg-green-500 text-white hover:bg-green-600' 
+                                                : 'bg-yellow-500 text-white hover:bg-yellow-600'
+                                        }`}
+                                    >
+                                        {item.archived ? '📤 Unarchive' : '📦 Archive'}
                                     </button>
                                     <button
                                         onClick={deleteItem}
