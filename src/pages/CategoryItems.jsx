@@ -18,6 +18,9 @@ function CategoryItems() {
   const [sortBy, setSortBy] = useState('date') // 'date' or 'tags'
   const [showArchived, setShowArchived] = useState(false)
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedItems, setSelectedItems] = useState([])
+  const [categories, setCategories] = useState([])
   const [selectedImage, setSelectedImage] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
   const [uploading, setUploading] = useState(false)
@@ -53,10 +56,151 @@ function CategoryItems() {
       } else {
         setItems(data)
       }
+
+      // Fetch all categories for batch move
+      const { data: allCategories } = await supabase
+        .from('categories')
+        .select('name, icon')
+        .eq('user_id', user.id)
+        .order('name')
+      
+      if (allCategories) {
+        setCategories(allCategories)
+      }
     }
 
     fetchData()
   }, [category])
+
+  // Selection functions
+  const toggleSelection = (itemId) => {
+    setSelectedItems(prev =>
+      prev.includes(itemId)
+        ? prev.filter(id => id !== itemId)
+        : [...prev, itemId]
+    )
+  }
+
+  const selectAll = () => {
+    setSelectedItems(filteredItems.map(item => item.id))
+  }
+
+  const clearSelection = () => {
+    setSelectedItems([])
+    setSelectionMode(false)
+  }
+
+  const refreshItems = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data, error } = await supabase
+      .from('item')
+      .select('*')
+      .eq('type', category)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+
+    if (!error && data) {
+      setItems(data)
+    }
+  }
+
+  // Batch operations
+  async function batchDelete() {
+    if (selectedItems.length === 0) return
+    
+    if (window.confirm(`Are you sure you want to delete ${selectedItems.length} item(s)?`)) {
+      const { error } = await supabase
+        .from('item')
+        .delete()
+        .in('id', selectedItems)
+
+      if (error) {
+        console.error('Error deleting items:', error)
+        alert('Error deleting items: ' + error.message)
+      } else {
+        alert(`${selectedItems.length} item(s) deleted successfully!`)
+        clearSelection()
+        refreshItems()
+      }
+    }
+  }
+
+  async function batchMove(newCategory) {
+    if (selectedItems.length === 0 || !newCategory) return
+
+    const { error } = await supabase
+      .from('item')
+      .update({ type: newCategory })
+      .in('id', selectedItems)
+
+    if (error) {
+      console.error('Error moving items:', error)
+      alert('Error moving items: ' + error.message)
+    } else {
+      alert(`${selectedItems.length} item(s) moved to ${newCategory}!`)
+      clearSelection()
+      refreshItems()
+    }
+  }
+
+  async function batchAddTags(tagsToAdd) {
+    if (selectedItems.length === 0 || tagsToAdd.length === 0) return
+
+    const itemsToUpdate = items.filter(i => selectedItems.includes(i.id))
+    
+    for (const item of itemsToUpdate) {
+      const existingTags = item.tags || []
+      const newTags = [...new Set([...existingTags, ...tagsToAdd])]
+      
+      await supabase
+        .from('item')
+        .update({ tags: newTags })
+        .eq('id', item.id)
+    }
+
+    alert(`Tags added to ${selectedItems.length} item(s)!`)
+    clearSelection()
+    refreshItems()
+  }
+
+  async function batchArchive(archived) {
+    if (selectedItems.length === 0) return
+
+    const { error } = await supabase
+      .from('item')
+      .update({ archived })
+      .in('id', selectedItems)
+
+    if (error) {
+      console.error('Error archiving items:', error)
+      alert('Error archiving items: ' + error.message)
+    } else {
+      alert(`${selectedItems.length} item(s) ${archived ? 'archived' : 'unarchived'}!`)
+      clearSelection()
+      refreshItems()
+    }
+  }
+
+  async function batchFavorite(favorite) {
+    if (selectedItems.length === 0) return
+
+    const { error } = await supabase
+      .from('item')
+      .update({ favorite })
+      .in('id', selectedItems)
+
+    if (error) {
+      console.error('Error updating favorites:', error)
+      alert('Error updating favorites: ' + error.message)
+    } else {
+      alert(`${selectedItems.length} item(s) ${favorite ? 'favorited' : 'unfavorited'}!`)
+      clearSelection()
+      refreshItems()
+    }
+  }
+
 
   const handleImageSelect = (e) => {
     const file = e.target.files[0]
@@ -271,6 +415,19 @@ function CategoryItems() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button
+                onClick={() => {
+                  setSelectionMode(!selectionMode)
+                  if (selectionMode) clearSelection()
+                }}
+                className={`px-4 py-2 rounded-lg font-semibold transition active:scale-95 text-sm sm:text-base ${
+                  selectionMode
+                    ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                {selectionMode ? '✓ Selection Mode' : '☑️ Select Items'}
+              </button>
+              <button
                 onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
                 className={`px-4 py-2 rounded-lg font-semibold transition active:scale-95 text-sm sm:text-base ${
                   showFavoritesOnly
@@ -402,6 +559,90 @@ function CategoryItems() {
           </div>
         </div>
 
+        {/* Batch Action Bar */}
+        {selectionMode && selectedItems.length > 0 && (
+          <div className="bg-indigo-600 rounded-xl shadow-lg p-4 mb-6 sm:mb-8 border border-indigo-700">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="text-white">
+                <p className="font-semibold">{selectedItems.length} item(s) selected</p>
+                <div className="flex gap-2 mt-1">
+                  <button
+                    onClick={selectAll}
+                    className="text-xs text-indigo-200 hover:text-white underline"
+                  >
+                    Select All ({filteredItems.length})
+                  </button>
+                  <button
+                    onClick={clearSelection}
+                    className="text-xs text-indigo-200 hover:text-white underline"
+                  >
+                    Clear Selection
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex flex-wrap gap-2">
+                {/* Move to Category */}
+                <select
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      batchMove(e.target.value)
+                      e.target.value = ''
+                    }
+                  }}
+                  className="px-3 py-2 bg-white text-gray-800 rounded-lg text-sm font-medium hover:bg-gray-100 transition"
+                  defaultValue=""
+                >
+                  <option value="" disabled>📁 Move to...</option>
+                  {categories.map(cat => (
+                    <option key={cat.name} value={cat.name}>
+                      {cat.icon} {cat.name}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Add Tags */}
+                <button
+                  onClick={() => {
+                    const tags = prompt('Enter tags (comma-separated):')
+                    if (tags) {
+                      const tagArray = tags.split(',').map(t => t.trim()).filter(t => t)
+                      batchAddTags(tagArray)
+                    }
+                  }}
+                  className="px-3 py-2 bg-white text-gray-800 rounded-lg text-sm font-medium hover:bg-gray-100 transition"
+                >
+                  🏷️ Add Tags
+                </button>
+
+                {/* Favorite */}
+                <button
+                  onClick={() => batchFavorite(true)}
+                  className="px-3 py-2 bg-yellow-500 text-white rounded-lg text-sm font-medium hover:bg-yellow-600 transition"
+                >
+                  ⭐ Favorite
+                </button>
+
+                {/* Archive */}
+                <button
+                  onClick={() => batchArchive(true)}
+                  className="px-3 py-2 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-700 transition"
+                >
+                  📦 Archive
+                </button>
+
+                {/* Delete */}
+                <button
+                  onClick={batchDelete}
+                  className="px-3 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition"
+                >
+                  🗑️ Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Tag Filter Cloud */}
         {sortedTags.length > 0 && (
           <div className="bg-white rounded-xl shadow-lg p-4 sm:p-6 mb-6 sm:mb-8 border border-gray-200">
@@ -517,9 +758,32 @@ function CategoryItems() {
               {filteredItems.map((item, index) => (
                 <div
                   key={item.id}
-                  onClick={() => navigate(`/item/${item.id}`)}
-                  className="flex items-center p-3 sm:p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-100 hover:shadow-md transition duration-200 active:scale-95 sm:hover:scale-[1.02] cursor-pointer"
+                  onClick={() => {
+                    if (selectionMode) {
+                      toggleSelection(item.id)
+                    } else {
+                      navigate(`/item/${item.id}`)
+                    }
+                  }}
+                  className={`flex items-center p-3 sm:p-4 rounded-lg border transition duration-200 cursor-pointer ${
+                    selectionMode && selectedItems.includes(item.id)
+                      ? 'bg-indigo-100 border-indigo-400 shadow-md'
+                      : 'bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-100 hover:shadow-md active:scale-95 sm:hover:scale-[1.02]'
+                  }`}
                 >
+                  {/* Checkbox for selection mode */}
+                  {selectionMode && (
+                    <div className="flex-shrink-0 mr-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedItems.includes(item.id)}
+                        onChange={() => toggleSelection(item.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500"
+                      />
+                    </div>
+                  )}
+                  
                   {/* Image Thumbnail */}
                   {item.image_url ? (
                     <div className="flex-shrink-0 w-16 h-16 sm:w-20 sm:h-20 mr-3 sm:mr-4 rounded-lg overflow-hidden border-2 border-indigo-200">
