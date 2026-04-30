@@ -3,6 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from './../supabaseClient'
 import TagInput from '../components/TagInput'
 import { exportToJSON, exportToCSV, getExportFilename, parseJSONFile, parseCSVFile, prepareImportData } from '../utils/exportUtils'
+import { formatDateTime } from '../utils/dateUtils'
+import { uploadImage, deleteImage } from '../utils/imageUtils'
+import { useDropdown } from '../hooks/useDropdown'
+import { useItemSelection } from '../hooks/useItemSelection'
+import Dropdown, { DropdownItem } from '../components/Dropdown'
 
 function CategoryItems() {
   const { category } = useParams()
@@ -17,26 +22,25 @@ function CategoryItems() {
   const [tags, setTags] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTags, setSelectedTags] = useState([])
-  const [filterMode, setFilterMode] = useState('OR') // 'AND' or 'OR'
-  const [sortBy, setSortBy] = useState('date') // 'date' or 'tags'
+  const [filterMode, setFilterMode] = useState('OR')
+  const [sortBy, setSortBy] = useState('date')
   const [showArchived, setShowArchived] = useState(false)
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
-  const [selectionMode, setSelectionMode] = useState(false)
-  const [selectedItems, setSelectedItems] = useState([])
   const [categories, setCategories] = useState([])
   const [selectedImage, setSelectedImage] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
   const [uploading, setUploading] = useState(false)
-  const [showExportDropdown, setShowExportDropdown] = useState(false)
-  const [showImportDropdown, setShowImportDropdown] = useState(false)
+
+  // Use custom hooks
+  const exportDropdown = useDropdown()
+  const importDropdown = useDropdown()
+  const { selectedItems, selectionMode, toggleSelection, selectAll, clearSelection, toggleSelectionMode } = useItemSelection()
 
   useEffect(() => {
     async function fetchData() {
       const { data: { user } } = await supabase.auth.getUser()
-      
       if (!user) return
 
-      // Fetch category icon
       const { data: categoryData } = await supabase
         .from('categories')
         .select('icon')
@@ -48,7 +52,6 @@ function CategoryItems() {
         setCategoryIcon(categoryData.icon)
       }
 
-      // Fetch items
       const { data, error } = await supabase
         .from('item')
         .select('*')
@@ -62,7 +65,6 @@ function CategoryItems() {
         setItems(data)
       }
 
-      // Fetch all categories for batch move
       const { data: allCategories } = await supabase
         .from('categories')
         .select('name, icon')
@@ -77,41 +79,6 @@ function CategoryItems() {
     fetchData()
   }, [category])
 
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (!event.target.closest('.export-dropdown-container') && !event.target.closest('.import-dropdown-container')) {
-        setShowExportDropdown(false)
-        setShowImportDropdown(false)
-      }
-    }
-
-    if (showExportDropdown || showImportDropdown) {
-      document.addEventListener('click', handleClickOutside)
-    }
-
-    return () => {
-      document.removeEventListener('click', handleClickOutside)
-    }
-  }, [showExportDropdown, showImportDropdown])
-
-  // Selection functions
-  const toggleSelection = (itemId) => {
-    setSelectedItems(prev =>
-      prev.includes(itemId)
-        ? prev.filter(id => id !== itemId)
-        : [...prev, itemId]
-    )
-  }
-
-  const selectAll = () => {
-    setSelectedItems(filteredItems.map(item => item.id))
-  }
-
-  const clearSelection = () => {
-    setSelectedItems([])
-    setSelectionMode(false)
-  }
 
   const refreshItems = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -129,47 +96,55 @@ function CategoryItems() {
     }
   }
 
-  // Batch operations
-  async function batchDelete() {
+  // Batch operation handlers
+  const handleBatchDelete = async () => {
     if (selectedItems.length === 0) return
     
     if (window.confirm(`Are you sure you want to delete ${selectedItems.length} item(s)?`)) {
-      const { error } = await supabase
-        .from('item')
-        .delete()
-        .in('id', selectedItems)
+      try {
+        const { error } = await supabase
+          .from('item')
+          .delete()
+          .in('id', selectedItems)
 
-      if (error) {
-        console.error('Error deleting items:', error)
-        alert('Error deleting items: ' + error.message)
-      } else {
+        if (error) throw error
+
         alert(`${selectedItems.length} item(s) deleted successfully!`)
         clearSelection()
         refreshItems()
+      } catch (error) {
+        console.error('Error deleting items:', error)
+        alert('Error deleting items: ' + error.message)
       }
     }
   }
 
-  async function batchMove(newCategory) {
+  const handleBatchMove = async (newCategory) => {
     if (selectedItems.length === 0 || !newCategory) return
 
-    const { error } = await supabase
-      .from('item')
-      .update({ type: newCategory })
-      .in('id', selectedItems)
+    try {
+      const { error } = await supabase
+        .from('item')
+        .update({ type: newCategory })
+        .in('id', selectedItems)
 
-    if (error) {
-      console.error('Error moving items:', error)
-      alert('Error moving items: ' + error.message)
-    } else {
+      if (error) throw error
+
       alert(`${selectedItems.length} item(s) moved to ${newCategory}!`)
       clearSelection()
       refreshItems()
+    } catch (error) {
+      console.error('Error moving items:', error)
+      alert('Error moving items: ' + error.message)
     }
   }
 
-  async function batchAddTags(tagsToAdd) {
-    if (selectedItems.length === 0 || tagsToAdd.length === 0) return
+  const handleBatchAddTags = async () => {
+    const tagsInput = prompt('Enter tags (comma-separated):')
+    if (!tagsInput) return
+    
+    const tagsToAdd = tagsInput.split(',').map(t => t.trim()).filter(t => t)
+    if (tagsToAdd.length === 0) return
 
     const itemsToUpdate = items.filter(i => selectedItems.includes(i.id))
     
@@ -188,43 +163,47 @@ function CategoryItems() {
     refreshItems()
   }
 
-  async function batchArchive(archived) {
+  const handleBatchArchive = async (archived) => {
     if (selectedItems.length === 0) return
 
-    const { error } = await supabase
-      .from('item')
-      .update({ archived })
-      .in('id', selectedItems)
+    try {
+      const { error } = await supabase
+        .from('item')
+        .update({ archived })
+        .in('id', selectedItems)
 
-    if (error) {
-      console.error('Error archiving items:', error)
-      alert('Error archiving items: ' + error.message)
-    } else {
+      if (error) throw error
+
       alert(`${selectedItems.length} item(s) ${archived ? 'archived' : 'unarchived'}!`)
       clearSelection()
       refreshItems()
+    } catch (error) {
+      console.error('Error archiving items:', error)
+      alert('Error archiving items: ' + error.message)
     }
   }
 
-  async function batchFavorite(favorite) {
+  const handleBatchFavorite = async (favorite) => {
     if (selectedItems.length === 0) return
 
-    const { error } = await supabase
-      .from('item')
-      .update({ favorite })
-      .in('id', selectedItems)
+    try {
+      const { error } = await supabase
+        .from('item')
+        .update({ favorite })
+        .in('id', selectedItems)
 
-    if (error) {
-      console.error('Error updating favorites:', error)
-      alert('Error updating favorites: ' + error.message)
-    } else {
+      if (error) throw error
+
       alert(`${selectedItems.length} item(s) ${favorite ? 'favorited' : 'unfavorited'}!`)
       clearSelection()
       refreshItems()
+    } catch (error) {
+      console.error('Error updating favorites:', error)
+      alert('Error updating favorites: ' + error.message)
     }
   }
 
-  // Import functions
+  // Import handlers
   const handleImportJSON = async (event) => {
     const file = event.target.files[0]
     if (!file) return
@@ -236,7 +215,6 @@ function CategoryItems() {
       alert('Error importing JSON: ' + error.message)
     }
     
-    // Reset file input
     if (jsonFileInputRef.current) {
       jsonFileInputRef.current.value = ''
     }
@@ -253,7 +231,6 @@ function CategoryItems() {
       alert('Error importing CSV: ' + error.message)
     }
     
-    // Reset file input
     if (csvFileInputRef.current) {
       csvFileInputRef.current.value = ''
     }
@@ -267,10 +244,9 @@ function CategoryItems() {
         return
       }
 
-      // Prepare data for import (will use current category if items don't specify type)
       const preparedData = prepareImportData(data, user.id).map(item => ({
         ...item,
-        type: category // Override type to current category
+        type: category
       }))
       
       if (preparedData.length === 0) {
@@ -282,15 +258,12 @@ function CategoryItems() {
         return
       }
 
-      // Insert into database
       const { data: insertedData, error } = await supabase
         .from('item')
         .insert(preparedData)
         .select()
 
-      if (error) {
-        throw error
-      }
+      if (error) throw error
 
       alert(`Successfully imported ${insertedData.length} item(s) into ${category}!`)
       refreshItems()
@@ -300,10 +273,11 @@ function CategoryItems() {
     }
   }
 
+  // Image handlers
   const handleImageSelect = (e) => {
     const file = e.target.files[0]
     if (file) {
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+      if (file.size > 5 * 1024 * 1024) {
         alert('File size must be less than 5MB')
         return
       }
@@ -319,29 +293,6 @@ function CategoryItems() {
   const removeImage = () => {
     setSelectedImage(null)
     setImagePreview(null)
-  }
-
-  async function uploadImage(userId) {
-    if (!selectedImage) return null
-
-    const fileExt = selectedImage.name.split('.').pop()
-    const fileName = `${userId}/${Date.now()}.${fileExt}`
-
-    const { error } = await supabase.storage
-      .from('diary-images')
-      .upload(fileName, selectedImage)
-
-    if (error) {
-      console.error('Error uploading image:', error)
-      throw error
-    }
-
-    // Get public URL
-    const { data: { publicUrl } } = supabase.storage
-      .from('diary-images')
-      .getPublicUrl(fileName)
-
-    return publicUrl
   }
 
   async function addItem() {
@@ -360,10 +311,9 @@ function CategoryItems() {
     }
 
     try {
-      // Upload image if selected
       let imageUrl = null
       if (selectedImage) {
-        imageUrl = await uploadImage(user.id)
+        imageUrl = await uploadImage(selectedImage, user.id)
       }
 
       const { error } = await supabase
@@ -390,15 +340,7 @@ function CategoryItems() {
         setTags([])
         removeImage()
         alert('Item created successfully! ✨')
-        // Re-fetch items after adding
-        const { data } = await supabase
-          .from('item')
-          .select('*')
-          .eq('type', category)
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-
-        if (data) setItems(data)
+        refreshItems()
       }
     } catch (error) {
       console.error('Error:', error)
@@ -408,61 +350,40 @@ function CategoryItems() {
     }
   }
 
-  // Extract all unique tags with counts
+  // Tag handling
   const allTags = items.reduce((acc, item) => {
     if (item.tags && item.tags.length > 0) {
       item.tags.forEach(tag => {
-        if (acc[tag]) {
-          acc[tag]++
-        } else {
-          acc[tag] = 1
-        }
+        acc[tag] = (acc[tag] || 0) + 1
       })
     }
     return acc
   }, {})
 
   const sortedTags = Object.entries(allTags)
-    .sort((a, b) => b[1] - a[1]) // Sort by count descending
+    .sort((a, b) => b[1] - a[1])
     .map(([tag, count]) => ({ tag, count }))
 
-  // Toggle tag selection
   const toggleTag = (tag) => {
     setSelectedTags(prev => 
-      prev.includes(tag) 
-        ? prev.filter(t => t !== tag)
-        : [...prev, tag]
+      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
     )
   }
 
-  // Clear all tag filters
-  const clearTagFilters = () => {
-    setSelectedTags([])
-  }
+  const clearTagFilters = () => setSelectedTags([])
 
-  // Filter logic
+  // Filter and sort items
   let filteredItems = items.filter(item => {
-    // Archive filter
-    if (!showArchived && item.archived) {
-      return false
-    }
+    if (!showArchived && item.archived) return false
+    if (showFavoritesOnly && !item.favorite) return false
     
-    // Favorites filter
-    if (showFavoritesOnly && !item.favorite) {
-      return false
-    }
-    
-    // Text search filter
     const matchesSearch = searchQuery === '' ||
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.sub_type.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (item.description && item.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (item.tags && item.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())))
 
-    // Tag filter
-    if (selectedTags.length === 0) {
-      return matchesSearch
-    }
+    if (selectedTags.length === 0) return matchesSearch
 
     const itemTags = item.tags || []
     const matchesTags = filterMode === 'AND'
@@ -472,23 +393,11 @@ function CategoryItems() {
     return matchesSearch && matchesTags
   })
 
-  // Sort logic
   if (sortBy === 'tags') {
     filteredItems = [...filteredItems].sort((a, b) => {
       const aTagCount = (a.tags || []).length
       const bTagCount = (b.tags || []).length
       return bTagCount - aTagCount
-    })
-  }
-
-  const formatDate = (dateString) => {
-    const date = new Date(dateString)
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
     })
   }
 
@@ -513,10 +422,7 @@ function CategoryItems() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={() => {
-                  setSelectionMode(!selectionMode)
-                  if (selectionMode) clearSelection()
-                }}
+                onClick={toggleSelectionMode}
                 className={`px-4 py-2 rounded-lg font-semibold transition active:scale-95 text-sm sm:text-base ${
                   selectionMode
                     ? 'bg-indigo-600 text-white hover:bg-indigo-700'
@@ -547,51 +453,55 @@ function CategoryItems() {
               </button>
               
               {/* Export Dropdown */}
-              <div className="relative border-l pl-2 export-dropdown-container">
-                <button
+              <Dropdown
+                isOpen={exportDropdown.isOpen}
+                onToggle={() => {
+                  exportDropdown.toggle()
+                  importDropdown.close()
+                }}
+                containerRef={exportDropdown.containerRef}
+                buttonText="📥 Export"
+                buttonClass="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition active:scale-95 flex items-center gap-2"
+              >
+                <DropdownItem
                   onClick={() => {
-                    setShowExportDropdown(!showExportDropdown)
-                    setShowImportDropdown(false)
+                    const filename = getExportFilename(`${category}_items`, filteredItems.length)
+                    exportToJSON(filteredItems, filename)
+                    alert(`Exported ${filteredItems.length} items from ${category} as JSON`)
+                    exportDropdown.close()
                   }}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition active:scale-95 flex items-center gap-2"
                 >
-                  📥 Export
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {showExportDropdown && (
-                  <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                    <button
-                      onClick={() => {
-                        const filename = getExportFilename(`${category}_items`, filteredItems.length)
-                        exportToJSON(filteredItems, filename)
-                        alert(`Exported ${filteredItems.length} items from ${category} as JSON`)
-                        setShowExportDropdown(false)
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-green-50 text-gray-700 transition flex items-center gap-2"
-                    >
-                      <span className="text-lg">📄</span>
-                      <span className="font-medium">JSON</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        const filename = getExportFilename(`${category}_items`, filteredItems.length)
-                        exportToCSV(filteredItems, filename)
-                        alert(`Exported ${filteredItems.length} items from ${category} as CSV`)
-                        setShowExportDropdown(false)
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-green-50 text-gray-700 transition flex items-center gap-2"
-                    >
-                      <span className="text-lg">📊</span>
-                      <span className="font-medium">CSV</span>
-                    </button>
-                  </div>
-                )}
-              </div>
+                  <span className="flex items-center gap-2">
+                    <span className="text-lg">📄</span>
+                    <span className="font-medium">JSON</span>
+                  </span>
+                </DropdownItem>
+                <DropdownItem
+                  onClick={() => {
+                    const filename = getExportFilename(`${category}_items`, filteredItems.length)
+                    exportToCSV(filteredItems, filename)
+                    alert(`Exported ${filteredItems.length} items from ${category} as CSV`)
+                    exportDropdown.close()
+                  }}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-lg">📊</span>
+                    <span className="font-medium">CSV</span>
+                  </span>
+                </DropdownItem>
+              </Dropdown>
               
               {/* Import Dropdown */}
-              <div className="relative import-dropdown-container">
+              <Dropdown
+                isOpen={importDropdown.isOpen}
+                onToggle={() => {
+                  importDropdown.toggle()
+                  exportDropdown.close()
+                }}
+                containerRef={importDropdown.containerRef}
+                buttonText="📤 Import"
+                buttonClass="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition active:scale-95 flex items-center gap-2"
+              >
                 <input
                   ref={jsonFileInputRef}
                   type="file"
@@ -606,43 +516,29 @@ function CategoryItems() {
                   onChange={handleImportCSV}
                   className="hidden"
                 />
-                <button
+                <DropdownItem
                   onClick={() => {
-                    setShowImportDropdown(!showImportDropdown)
-                    setShowExportDropdown(false)
+                    jsonFileInputRef.current?.click()
+                    importDropdown.close()
                   }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition active:scale-95 flex items-center gap-2"
                 >
-                  📤 Import
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {showImportDropdown && (
-                  <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                    <button
-                      onClick={() => {
-                        jsonFileInputRef.current?.click()
-                        setShowImportDropdown(false)
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-blue-50 text-gray-700 transition flex items-center gap-2"
-                    >
-                      <span className="text-lg">📄</span>
-                      <span className="font-medium">JSON</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        csvFileInputRef.current?.click()
-                        setShowImportDropdown(false)
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-blue-50 text-gray-700 transition flex items-center gap-2"
-                    >
-                      <span className="text-lg">📊</span>
-                      <span className="font-medium">CSV</span>
-                    </button>
-                  </div>
-                )}
-              </div>
+                  <span className="flex items-center gap-2">
+                    <span className="text-lg">📄</span>
+                    <span className="font-medium">JSON</span>
+                  </span>
+                </DropdownItem>
+                <DropdownItem
+                  onClick={() => {
+                    csvFileInputRef.current?.click()
+                    importDropdown.close()
+                  }}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-lg">📊</span>
+                    <span className="font-medium">CSV</span>
+                  </span>
+                </DropdownItem>
+              </Dropdown>
             </div>
           </div>
         </div>
@@ -763,7 +659,7 @@ function CategoryItems() {
                 <p className="font-semibold">{selectedItems.length} item(s) selected</p>
                 <div className="flex gap-2 mt-1">
                   <button
-                    onClick={selectAll}
+                    onClick={() => selectAll(filteredItems.map(item => item.id))}
                     className="text-xs text-indigo-200 hover:text-white underline"
                   >
                     Select All ({filteredItems.length})
@@ -782,7 +678,7 @@ function CategoryItems() {
                 <select
                   onChange={(e) => {
                     if (e.target.value) {
-                      batchMove(e.target.value)
+                      handleBatchMove(e.target.value)
                       e.target.value = ''
                     }
                   }}
@@ -797,39 +693,29 @@ function CategoryItems() {
                   ))}
                 </select>
 
-                {/* Add Tags */}
                 <button
-                  onClick={() => {
-                    const tags = prompt('Enter tags (comma-separated):')
-                    if (tags) {
-                      const tagArray = tags.split(',').map(t => t.trim()).filter(t => t)
-                      batchAddTags(tagArray)
-                    }
-                  }}
+                  onClick={handleBatchAddTags}
                   className="px-3 py-2 bg-white text-gray-800 rounded-lg text-sm font-medium hover:bg-gray-100 transition"
                 >
                   🏷️ Add Tags
                 </button>
 
-                {/* Favorite */}
                 <button
-                  onClick={() => batchFavorite(true)}
+                  onClick={() => handleBatchFavorite(true)}
                   className="px-3 py-2 bg-yellow-500 text-white rounded-lg text-sm font-medium hover:bg-yellow-600 transition"
                 >
                   ⭐ Favorite
                 </button>
 
-                {/* Archive */}
                 <button
-                  onClick={() => batchArchive(true)}
+                  onClick={() => handleBatchArchive(true)}
                   className="px-3 py-2 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-700 transition"
                 >
                   📦 Archive
                 </button>
 
-                {/* Delete */}
                 <button
-                  onClick={batchDelete}
+                  onClick={handleBatchDelete}
                   className="px-3 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition"
                 >
                   🗑️ Delete
@@ -1039,7 +925,7 @@ function CategoryItems() {
                       </div>
                     )}
                     <p className="text-xs text-gray-400 mt-1">
-                      📅 {formatDate(item.created_at)}
+                      📅 {formatDateTime(item.created_at)}
                     </p>
                   </div>
                   <svg className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 flex-shrink-0 ml-2 sm:ml-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

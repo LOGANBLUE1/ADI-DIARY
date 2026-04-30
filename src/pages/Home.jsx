@@ -2,6 +2,12 @@ import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from './../supabaseClient'
 import { exportToJSON, exportToCSV, getExportFilename, parseJSONFile, parseCSVFile, prepareImportData } from '../utils/exportUtils'
+import { formatDateTime } from '../utils/dateUtils'
+import { useDropdown } from '../hooks/useDropdown'
+import { useItemSelection } from '../hooks/useItemSelection'
+import { useBatchOperations } from '../hooks/useBatchOperations'
+import Dropdown, { DropdownItem } from '../components/Dropdown'
+import TagCloud from '../components/TagCloud'
 
 function Home() {
   const navigate = useNavigate()
@@ -10,49 +16,32 @@ function Home() {
   const [users, setUsers] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTags, setSelectedTags] = useState([])
-  const [filterMode, setFilterMode] = useState('OR') // 'AND' or 'OR'
-  const [sortBy, setSortBy] = useState('date') // 'date' or 'tags'
+  const [filterMode, setFilterMode] = useState('OR')
+  const [sortBy, setSortBy] = useState('date')
   const [showArchived, setShowArchived] = useState(false)
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false)
-  const [selectionMode, setSelectionMode] = useState(false)
-  const [selectedItems, setSelectedItems] = useState([])
   const [categories, setCategories] = useState([])
-  const [showExportDropdown, setShowExportDropdown] = useState(false)
-  const [showImportDropdown, setShowImportDropdown] = useState(false)
+
+  // Use custom hooks
+  const exportDropdown = useDropdown()
+  const importDropdown = useDropdown()
+  const { selectedItems, selectionMode, toggleSelection, selectAll, clearSelection, toggleSelectionMode } = useItemSelection()
+  const { batchDelete, batchMove, batchAddTags, batchToggleFavorite, batchToggleArchive } = useBatchOperations()
 
   useEffect(() => {
     fetchUsers()
     fetchCategories()
   }, [])
 
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (!event.target.closest('.export-dropdown-container') && !event.target.closest('.import-dropdown-container')) {
-        setShowExportDropdown(false)
-        setShowImportDropdown(false)
-      }
-    }
-
-    if (showExportDropdown || showImportDropdown) {
-      document.addEventListener('click', handleClickOutside)
-    }
-
-    return () => {
-      document.removeEventListener('click', handleClickOutside)
-    }
-  }, [showExportDropdown, showImportDropdown])
-
   async function fetchUsers() {
     const { data: { user } } = await supabase.auth.getUser()
-    
     if (!user) return
 
     const { data, error } = await supabase
-        .from('item')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
+      .from('item')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
 
     if (error) {
       console.log(error)
@@ -63,7 +52,6 @@ function Home() {
 
   async function fetchCategories() {
     const { data: { user } } = await supabase.auth.getUser()
-    
     if (!user) return
 
     const { data, error } = await supabase
@@ -79,72 +67,55 @@ function Home() {
     }
   }
 
-  // Selection functions
-  const toggleSelection = (itemId) => {
-    setSelectedItems(prev =>
-      prev.includes(itemId)
-        ? prev.filter(id => id !== itemId)
-        : [...prev, itemId]
-    )
-  }
-
-  const selectAll = () => {
-    setSelectedItems(filteredUsers.map(u => u.id))
-  }
-
-  const clearSelection = () => {
-    setSelectedItems([])
-    setSelectionMode(false)
-  }
-
-  // Batch operations
-  async function batchDelete() {
+  // Batch operation handlers
+  const handleBatchDelete = async () => {
     if (selectedItems.length === 0) return
     
     if (window.confirm(`Are you sure you want to delete ${selectedItems.length} item(s)?`)) {
-      const { error } = await supabase
-        .from('item')
-        .delete()
-        .in('id', selectedItems)
-
-      if (error) {
-        console.error('Error deleting items:', error)
-        alert('Error deleting items: ' + error.message)
-      } else {
+      try {
+        await batchDelete(selectedItems)
         alert(`${selectedItems.length} item(s) deleted successfully!`)
         clearSelection()
         fetchUsers()
+      } catch (error) {
+        console.error('Error deleting items:', error)
+        alert('Error deleting items: ' + error.message)
       }
     }
   }
 
-  async function batchMove(newCategory) {
+  const handleBatchMove = async (newCategory) => {
     if (selectedItems.length === 0 || !newCategory) return
 
-    const { error } = await supabase
-      .from('item')
-      .update({ type: newCategory })
-      .in('id', selectedItems)
+    try {
+      const { error } = await supabase
+        .from('item')
+        .update({ type: newCategory })
+        .in('id', selectedItems)
 
-    if (error) {
-      console.error('Error moving items:', error)
-      alert('Error moving items: ' + error.message)
-    } else {
+      if (error) throw error
+
       alert(`${selectedItems.length} item(s) moved to ${newCategory}!`)
       clearSelection()
       fetchUsers()
+    } catch (error) {
+      console.error('Error moving items:', error)
+      alert('Error moving items: ' + error.message)
     }
   }
 
-  async function batchAddTags(tagsToAdd) {
-    if (selectedItems.length === 0 || tagsToAdd.length === 0) return
+  const handleBatchAddTags = async () => {
+    const tags = prompt('Enter tags (comma-separated):')
+    if (!tags) return
+    
+    const tagArray = tags.split(',').map(t => t.trim()).filter(t => t)
+    if (tagArray.length === 0) return
 
-    // Get selected items to merge tags
     const itemsToUpdate = users.filter(u => selectedItems.includes(u.id))
     
     for (const item of itemsToUpdate) {
       const existingTags = item.tags || []
-      const newTags = [...new Set([...existingTags, ...tagsToAdd])]
+      const newTags = [...new Set([...existingTags, ...tagArray])]
       
       await supabase
         .from('item')
@@ -157,43 +128,35 @@ function Home() {
     fetchUsers()
   }
 
-  async function batchArchive(archived) {
+  const handleBatchArchive = async (archived) => {
     if (selectedItems.length === 0) return
 
-    const { error } = await supabase
-      .from('item')
-      .update({ archived })
-      .in('id', selectedItems)
-
-    if (error) {
-      console.error('Error archiving items:', error)
-      alert('Error archiving items: ' + error.message)
-    } else {
+    try {
+      await batchToggleArchive(selectedItems, archived)
       alert(`${selectedItems.length} item(s) ${archived ? 'archived' : 'unarchived'}!`)
       clearSelection()
       fetchUsers()
+    } catch (error) {
+      console.error('Error archiving items:', error)
+      alert('Error archiving items: ' + error.message)
     }
   }
 
-  async function batchFavorite(favorite) {
+  const handleBatchFavorite = async (favorite) => {
     if (selectedItems.length === 0) return
 
-    const { error } = await supabase
-      .from('item')
-      .update({ favorite })
-      .in('id', selectedItems)
-
-    if (error) {
-      console.error('Error updating favorites:', error)
-      alert('Error updating favorites: ' + error.message)
-    } else {
+    try {
+      await batchToggleFavorite(selectedItems, favorite)
       alert(`${selectedItems.length} item(s) ${favorite ? 'favorited' : 'unfavorited'}!`)
       clearSelection()
       fetchUsers()
+    } catch (error) {
+      console.error('Error updating favorites:', error)
+      alert('Error updating favorites: ' + error.message)
     }
   }
 
-  // Import functions
+  // Import handlers
   const handleImportJSON = async (event) => {
     const file = event.target.files[0]
     if (!file) return
@@ -205,7 +168,6 @@ function Home() {
       alert('Error importing JSON: ' + error.message)
     }
     
-    // Reset file input
     if (jsonFileInputRef.current) {
       jsonFileInputRef.current.value = ''
     }
@@ -222,7 +184,6 @@ function Home() {
       alert('Error importing CSV: ' + error.message)
     }
     
-    // Reset file input
     if (csvFileInputRef.current) {
       csvFileInputRef.current.value = ''
     }
@@ -236,7 +197,6 @@ function Home() {
         return
       }
 
-      // Prepare data for import
       const preparedData = prepareImportData(data, user.id)
       
       if (preparedData.length === 0) {
@@ -248,15 +208,12 @@ function Home() {
         return
       }
 
-      // Insert into database
       const { data: insertedData, error } = await supabase
         .from('item')
         .insert(preparedData)
         .select()
 
-      if (error) {
-        throw error
-      }
+      if (error) throw error
 
       alert(`Successfully imported ${insertedData.length} item(s)!`)
       fetchUsers()
@@ -266,51 +223,33 @@ function Home() {
     }
   }
 
-  // Extract all unique tags with counts
+  // Tag handling
   const allTags = users.reduce((acc, item) => {
     if (item.tags && item.tags.length > 0) {
       item.tags.forEach(tag => {
-        if (acc[tag]) {
-          acc[tag]++
-        } else {
-          acc[tag] = 1
-        }
+        acc[tag] = (acc[tag] || 0) + 1
       })
     }
     return acc
   }, {})
 
   const sortedTags = Object.entries(allTags)
-    .sort((a, b) => b[1] - a[1]) // Sort by count descending
+    .sort((a, b) => b[1] - a[1])
     .map(([tag, count]) => ({ tag, count }))
 
-  // Toggle tag selection
   const toggleTag = (tag) => {
     setSelectedTags(prev => 
-      prev.includes(tag) 
-        ? prev.filter(t => t !== tag)
-        : [...prev, tag]
+      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
     )
   }
 
-  // Clear all tag filters
-  const clearTagFilters = () => {
-    setSelectedTags([])
-  }
+  const clearTagFilters = () => setSelectedTags([])
 
-  // Filter logic
+  // Filter and sort items
   let filteredUsers = users.filter(u => {
-    // Archive filter
-    if (!showArchived && u.archived) {
-      return false
-    }
+    if (!showArchived && u.archived) return false
+    if (showFavoritesOnly && !u.favorite) return false
     
-    // Favorites filter
-    if (showFavoritesOnly && !u.favorite) {
-      return false
-    }
-    
-    // Text search filter
     const matchesSearch = searchQuery === '' ||
       u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -318,10 +257,7 @@ function Home() {
       (u.description && u.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (u.tags && u.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())))
 
-    // Tag filter
-    if (selectedTags.length === 0) {
-      return matchesSearch
-    }
+    if (selectedTags.length === 0) return matchesSearch
 
     const itemTags = u.tags || []
     const matchesTags = filterMode === 'AND'
@@ -331,23 +267,11 @@ function Home() {
     return matchesSearch && matchesTags
   })
 
-  // Sort logic
   if (sortBy === 'tags') {
     filteredUsers = [...filteredUsers].sort((a, b) => {
       const aTagCount = (a.tags || []).length
       const bTagCount = (b.tags || []).length
       return bTagCount - aTagCount
-    })
-  }
-
-  const formatDate = (dateString) => {
-    const date = new Date(dateString)
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
     })
   }
 
@@ -363,10 +287,7 @@ function Home() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={() => {
-                  setSelectionMode(!selectionMode)
-                  if (selectionMode) clearSelection()
-                }}
+                onClick={toggleSelectionMode}
                 className={`px-4 py-2 rounded-lg font-semibold transition active:scale-95 text-sm sm:text-base ${
                   selectionMode
                     ? 'bg-indigo-600 text-white hover:bg-indigo-700'
@@ -397,51 +318,55 @@ function Home() {
               </button>
               
               {/* Export Dropdown */}
-              <div className="relative border-l pl-2 export-dropdown-container">
-                <button
+              <Dropdown
+                isOpen={exportDropdown.isOpen}
+                onToggle={() => {
+                  exportDropdown.toggle()
+                  importDropdown.close()
+                }}
+                containerRef={exportDropdown.containerRef}
+                buttonText="📥 Export"
+                buttonClass="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition active:scale-95 flex items-center gap-2"
+              >
+                <DropdownItem
                   onClick={() => {
-                    setShowExportDropdown(!showExportDropdown)
-                    setShowImportDropdown(false)
+                    const filename = getExportFilename('all_items', filteredUsers.length)
+                    exportToJSON(filteredUsers, filename)
+                    alert(`Exported ${filteredUsers.length} items as JSON`)
+                    exportDropdown.close()
                   }}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition active:scale-95 flex items-center gap-2"
                 >
-                  📥 Export
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {showExportDropdown && (
-                  <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                    <button
-                      onClick={() => {
-                        const filename = getExportFilename('all_items', filteredUsers.length)
-                        exportToJSON(filteredUsers, filename)
-                        alert(`Exported ${filteredUsers.length} items as JSON`)
-                        setShowExportDropdown(false)
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-green-50 text-gray-700 transition flex items-center gap-2"
-                    >
-                      <span className="text-lg">📄</span>
-                      <span className="font-medium">JSON</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        const filename = getExportFilename('all_items', filteredUsers.length)
-                        exportToCSV(filteredUsers, filename)
-                        alert(`Exported ${filteredUsers.length} items as CSV`)
-                        setShowExportDropdown(false)
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-green-50 text-gray-700 transition flex items-center gap-2"
-                    >
-                      <span className="text-lg">📊</span>
-                      <span className="font-medium">CSV</span>
-                    </button>
-                  </div>
-                )}
-              </div>
+                  <span className="flex items-center gap-2">
+                    <span className="text-lg">📄</span>
+                    <span className="font-medium">JSON</span>
+                  </span>
+                </DropdownItem>
+                <DropdownItem
+                  onClick={() => {
+                    const filename = getExportFilename('all_items', filteredUsers.length)
+                    exportToCSV(filteredUsers, filename)
+                    alert(`Exported ${filteredUsers.length} items as CSV`)
+                    exportDropdown.close()
+                  }}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-lg">📊</span>
+                    <span className="font-medium">CSV</span>
+                  </span>
+                </DropdownItem>
+              </Dropdown>
               
               {/* Import Dropdown */}
-              <div className="relative import-dropdown-container">
+              <Dropdown
+                isOpen={importDropdown.isOpen}
+                onToggle={() => {
+                  importDropdown.toggle()
+                  exportDropdown.close()
+                }}
+                containerRef={importDropdown.containerRef}
+                buttonText="📤 Import"
+                buttonClass="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition active:scale-95 flex items-center gap-2"
+              >
                 <input
                   ref={jsonFileInputRef}
                   type="file"
@@ -456,43 +381,29 @@ function Home() {
                   onChange={handleImportCSV}
                   className="hidden"
                 />
-                <button
+                <DropdownItem
                   onClick={() => {
-                    setShowImportDropdown(!showImportDropdown)
-                    setShowExportDropdown(false)
+                    jsonFileInputRef.current?.click()
+                    importDropdown.close()
                   }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition active:scale-95 flex items-center gap-2"
                 >
-                  📤 Import
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {showImportDropdown && (
-                  <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                    <button
-                      onClick={() => {
-                        jsonFileInputRef.current?.click()
-                        setShowImportDropdown(false)
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-blue-50 text-gray-700 transition flex items-center gap-2"
-                    >
-                      <span className="text-lg">📄</span>
-                      <span className="font-medium">JSON</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        csvFileInputRef.current?.click()
-                        setShowImportDropdown(false)
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-blue-50 text-gray-700 transition flex items-center gap-2"
-                    >
-                      <span className="text-lg">📊</span>
-                      <span className="font-medium">CSV</span>
-                    </button>
-                  </div>
-                )}
-              </div>
+                  <span className="flex items-center gap-2">
+                    <span className="text-lg">📄</span>
+                    <span className="font-medium">JSON</span>
+                  </span>
+                </DropdownItem>
+                <DropdownItem
+                  onClick={() => {
+                    csvFileInputRef.current?.click()
+                    importDropdown.close()
+                  }}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-lg">📊</span>
+                    <span className="font-medium">CSV</span>
+                  </span>
+                </DropdownItem>
+              </Dropdown>
             </div>
           </div>
         </div>
@@ -525,7 +436,7 @@ function Home() {
                 <p className="font-semibold">{selectedItems.length} item(s) selected</p>
                 <div className="flex gap-2 mt-1">
                   <button
-                    onClick={selectAll}
+                    onClick={() => selectAll(filteredUsers.map(u => u.id))}
                     className="text-xs text-indigo-200 hover:text-white underline"
                   >
                     Select All ({filteredUsers.length})
@@ -540,11 +451,10 @@ function Home() {
               </div>
               
               <div className="flex flex-wrap gap-2">
-                {/* Move to Category */}
                 <select
                   onChange={(e) => {
                     if (e.target.value) {
-                      batchMove(e.target.value)
+                      handleBatchMove(e.target.value)
                       e.target.value = ''
                     }
                   }}
@@ -559,39 +469,29 @@ function Home() {
                   ))}
                 </select>
 
-                {/* Add Tags */}
                 <button
-                  onClick={() => {
-                    const tags = prompt('Enter tags (comma-separated):')
-                    if (tags) {
-                      const tagArray = tags.split(',').map(t => t.trim()).filter(t => t)
-                      batchAddTags(tagArray)
-                    }
-                  }}
+                  onClick={handleBatchAddTags}
                   className="px-3 py-2 bg-white text-gray-800 rounded-lg text-sm font-medium hover:bg-gray-100 transition"
                 >
                   🏷️ Add Tags
                 </button>
 
-                {/* Favorite */}
                 <button
-                  onClick={() => batchFavorite(true)}
+                  onClick={() => handleBatchFavorite(true)}
                   className="px-3 py-2 bg-yellow-500 text-white rounded-lg text-sm font-medium hover:bg-yellow-600 transition"
                 >
                   ⭐ Favorite
                 </button>
 
-                {/* Archive */}
                 <button
-                  onClick={() => batchArchive(true)}
+                  onClick={() => handleBatchArchive(true)}
                   className="px-3 py-2 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-700 transition"
                 >
                   📦 Archive
                 </button>
 
-                {/* Delete */}
                 <button
-                  onClick={batchDelete}
+                  onClick={handleBatchDelete}
                   className="px-3 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition"
                 >
                   🗑️ Delete
@@ -614,7 +514,6 @@ function Home() {
                 )}
               </h2>
               <div className="flex items-center gap-2 sm:gap-3">
-                {/* Filter Mode Toggle */}
                 {selectedTags.length > 1 && (
                   <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
                     <button
@@ -639,14 +538,12 @@ function Home() {
                     </button>
                   </div>
                 )}
-                {/* Sort Toggle */}
                 <button
                   onClick={() => setSortBy(sortBy === 'date' ? 'tags' : 'date')}
                   className="px-3 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-xs sm:text-sm font-medium hover:bg-purple-200 transition"
                 >
                   Sort: {sortBy === 'date' ? '📅 Date' : '🏷️ Tags'}
                 </button>
-                {/* Clear Filters */}
                 {selectedTags.length > 0 && (
                   <button
                     onClick={clearTagFilters}
@@ -658,7 +555,6 @@ function Home() {
               </div>
             </div>
 
-            {/* Tag Cloud */}
             <div className="flex flex-wrap gap-2">
               {sortedTags.map(({ tag, count }) => {
                 const isSelected = selectedTags.includes(tag)
@@ -683,7 +579,6 @@ function Home() {
               })}
             </div>
 
-            {/* Filter explanation */}
             {selectedTags.length > 1 && (
               <p className="mt-3 text-xs text-gray-500">
                 {filterMode === 'OR' 
@@ -803,7 +698,7 @@ function Home() {
                       </div>
                     )}
                     <p className="text-xs text-gray-400 mt-1">
-                      📅 {formatDate(u.created_at)}
+                      📅 {formatDateTime(u.created_at)}
                     </p>
                   </div>
                   <svg className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 flex-shrink-0 ml-2 sm:ml-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

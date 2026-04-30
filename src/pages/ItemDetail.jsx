@@ -3,6 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from './../supabaseClient'
 import TagInput from '../components/TagInput'
 import { exportToJSON, exportToCSV, getExportFilename } from '../utils/exportUtils'
+import { formatDateTime } from '../utils/dateUtils'
+import { uploadImage, deleteImage } from '../utils/imageUtils'
+import { useDropdown } from '../hooks/useDropdown'
+import Dropdown, { DropdownItem } from '../components/Dropdown'
 
 function ItemDetail() {
     const { id } = useParams()
@@ -18,7 +22,9 @@ function ItemDetail() {
     const [imagePreview, setImagePreview] = useState(null)
     const [uploading, setUploading] = useState(false)
     const [removeExistingImage, setRemoveExistingImage] = useState(false)
-    const [showExportDropdown, setShowExportDropdown] = useState(false)
+
+    // Use custom hook
+    const exportDropdown = useDropdown()
 
     useEffect(() => {
         async function fetchItem() {
@@ -42,23 +48,6 @@ function ItemDetail() {
 
         fetchItem()
     }, [id])
-
-    // Close dropdown when clicking outside
-    useEffect(() => {
-        const handleClickOutside = (event) => {
-            if (!event.target.closest('.export-dropdown-container')) {
-                setShowExportDropdown(false)
-            }
-        }
-
-        if (showExportDropdown) {
-            document.addEventListener('click', handleClickOutside)
-        }
-
-        return () => {
-            document.removeEventListener('click', handleClickOutside)
-        }
-    }, [showExportDropdown])
 
     async function toggleArchive() {
         const newArchivedState = !item.archived
@@ -137,42 +126,12 @@ function ItemDetail() {
         }
     }
 
-    // Delete image from storage
     async function deleteImageFromStorage(imageUrl) {
-        if (!imageUrl) return
-        
-        const filePath = getImagePathFromUrl(imageUrl)
-        if (!filePath) return
-
-        const { error } = await supabase.storage
-            .from('diary-images')
-            .remove([filePath])
-
-        if (error) {
+        try {
+            await deleteImage(imageUrl)
+        } catch (error) {
             console.error('Error deleting image from storage:', error)
         }
-    }
-
-    async function uploadImage(userId) {
-        if (!selectedImage) return null
-
-        const fileExt = selectedImage.name.split('.').pop()
-        const fileName = `${userId}/${Date.now()}.${fileExt}`
-
-        const { error } = await supabase.storage
-            .from('diary-images')
-            .upload(fileName, selectedImage)
-
-        if (error) {
-            console.error('Error uploading image:', error)
-            throw error
-        }
-
-        const { data: { publicUrl } } = supabase.storage
-            .from('diary-images')
-            .getPublicUrl(fileName)
-
-        return publicUrl
     }
 
     async function updateItem() {
@@ -204,7 +163,7 @@ function ItemDetail() {
                 if (oldImageUrl) {
                     await deleteImageFromStorage(oldImageUrl)
                 }
-                imageUrl = await uploadImage(user.id)
+                imageUrl = await uploadImage(selectedImage, user.id)
             }
 
             const { error } = await supabase
@@ -280,18 +239,6 @@ function ItemDetail() {
             }
         }
     }
-
-    const formatDate = (dateString) => {
-        const date = new Date(dateString)
-        return date.toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        })
-      }
 
     if (!item) {
         return (
@@ -379,45 +326,40 @@ function ItemDetail() {
                                     </button>
                                     
                                     {/* Export Dropdown */}
-                                    <div className="relative border-l pl-2 export-dropdown-container">
-                                        <button
-                                            onClick={() => setShowExportDropdown(!showExportDropdown)}
-                                            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition active:scale-95 flex items-center gap-2"
+                                    <Dropdown
+                                        isOpen={exportDropdown.isOpen}
+                                        onToggle={exportDropdown.toggle}
+                                        containerRef={exportDropdown.containerRef}
+                                        buttonText="📥 Export"
+                                        buttonClass="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition active:scale-95 flex items-center gap-2"
+                                    >
+                                        <DropdownItem
+                                            onClick={() => {
+                                                const filename = getExportFilename(`item_${item.name.replace(/\s+/g, '_')}`, null)
+                                                exportToJSON(item, filename)
+                                                alert(`Exported "${item.name}" as JSON`)
+                                                exportDropdown.close()
+                                            }}
                                         >
-                                            📥 Export
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                            </svg>
-                                        </button>
-                                        {showExportDropdown && (
-                                            <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                                                <button
-                                                    onClick={() => {
-                                                        const filename = getExportFilename(`item_${item.name.replace(/\s+/g, '_')}`, null)
-                                                        exportToJSON(item, filename)
-                                                        alert(`Exported "${item.name}" as JSON`)
-                                                        setShowExportDropdown(false)
-                                                    }}
-                                                    className="w-full text-left px-4 py-2 hover:bg-green-50 text-gray-700 transition flex items-center gap-2"
-                                                >
-                                                    <span className="text-lg">📄</span>
-                                                    <span className="font-medium">JSON</span>
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        const filename = getExportFilename(`item_${item.name.replace(/\s+/g, '_')}`, null)
-                                                        exportToCSV(item, filename)
-                                                        alert(`Exported "${item.name}" as CSV`)
-                                                        setShowExportDropdown(false)
-                                                    }}
-                                                    className="w-full text-left px-4 py-2 hover:bg-green-50 text-gray-700 transition flex items-center gap-2"
-                                                >
-                                                    <span className="text-lg">📊</span>
-                                                    <span className="font-medium">CSV</span>
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
+                                            <span className="flex items-center gap-2">
+                                                <span className="text-lg">📄</span>
+                                                <span className="font-medium">JSON</span>
+                                            </span>
+                                        </DropdownItem>
+                                        <DropdownItem
+                                            onClick={() => {
+                                                const filename = getExportFilename(`item_${item.name.replace(/\s+/g, '_')}`, null)
+                                                exportToCSV(item, filename)
+                                                alert(`Exported "${item.name}" as CSV`)
+                                                exportDropdown.close()
+                                            }}
+                                        >
+                                            <span className="flex items-center gap-2">
+                                                <span className="text-lg">📊</span>
+                                                <span className="font-medium">CSV</span>
+                                            </span>
+                                        </DropdownItem>
+                                    </Dropdown>
                                 </>
                             ) : (
                                 <>
@@ -517,7 +459,7 @@ function ItemDetail() {
                   <label className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wider">Created At</label>
                   <p className="mt-2 text-sm sm:text-base md:text-lg text-gray-800 flex items-center">
                     <span className="mr-2">📅</span>
-                    <span className="break-words">{formatDate(item.created_at)}</span>
+                    <span className="break-words">{formatDateTime(item.created_at)}</span>
                   </p>
                 </div>
                             </div>
