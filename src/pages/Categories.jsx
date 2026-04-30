@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from './../supabaseClient'
 
@@ -11,6 +11,7 @@ function Categories() {
     const [newCategoryIcon, setNewCategoryIcon] = useState('📁')
     const [isAddingCategory, setIsAddingCategory] = useState(false)
     const navigate = useNavigate()
+    const jsonFileInputRef = useRef(null)
 
     // Popular emoji options for categories
     const emojiOptions = [
@@ -149,13 +150,211 @@ function Categories() {
         navigate('/all')
     }
 
+    // Export all data (categories + items) as JSON
+    const exportAllData = async () => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) {
+                alert('You must be logged in to export data')
+                return
+            }
+
+            // Fetch all categories
+            const { data: categoriesData, error: catError } = await supabase
+                .from('categories')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false })
+
+            if (catError) throw catError
+
+            // Fetch all items
+            const { data: itemsData, error: itemsError } = await supabase
+                .from('item')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false })
+
+            if (itemsError) throw itemsError
+
+            // Prepare complete backup data
+            const backupData = {
+                exportDate: new Date().toISOString(),
+                version: '1.0',
+                categories: categoriesData || [],
+                items: itemsData || [],
+                totalCategories: (categoriesData || []).length,
+                totalItems: (itemsData || []).length
+            }
+
+            const timestamp = new Date().toISOString().split('T')[0]
+            
+            // Export as JSON
+            const jsonString = JSON.stringify(backupData, null, 2)
+            const blob = new Blob([jsonString], { type: 'application/json' })
+            const url = URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            link.href = url
+            link.download = `diary_complete_backup_${timestamp}.json`
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            URL.revokeObjectURL(url)
+            
+            alert(`✅ Complete backup exported successfully!\n\n📊 Summary:\n- ${backupData.totalCategories} categories\n- ${backupData.totalItems} items\n\nFile: diary_complete_backup_${timestamp}.json`)
+        } catch (error) {
+            console.error('Export error:', error)
+            alert('Error exporting data: ' + error.message)
+        }
+    }
+
+    // Import all data (categories + items)
+    const handleImportJSON = async (event) => {
+        const file = event.target.files[0]
+        if (!file) return
+
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) {
+                alert('You must be logged in to import data')
+                return
+            }
+
+            const text = await file.text()
+            const backupData = JSON.parse(text)
+
+            // Validate backup format
+            if (!backupData.categories || !backupData.items) {
+                alert('Invalid backup file format. Please use a valid backup file.')
+                return
+            }
+
+            const categoriesCount = backupData.categories.length
+            const itemsCount = backupData.items.length
+
+            if (!window.confirm(
+                `Import backup data?\n\n` +
+                `This will import:\n` +
+                `- ${categoriesCount} categories\n` +
+                `- ${itemsCount} items\n\n` +
+                `Note: Duplicate categories will be skipped.`
+            )) {
+                return
+            }
+
+            let importedCategories = 0
+            let importedItems = 0
+            let skippedCategories = 0
+
+            // Import categories first
+            for (const category of backupData.categories) {
+                // Check if category already exists
+                const { data: existing } = await supabase
+                    .from('categories')
+                    .select('id')
+                    .eq('name', category.name)
+                    .eq('user_id', user.id)
+                    .single()
+
+                if (existing) {
+                    skippedCategories++
+                    continue
+                }
+
+                // Insert category
+                const { error } = await supabase
+                    .from('categories')
+                    .insert([{
+                        name: category.name,
+                        description: category.description,
+                        icon: category.icon,
+                        user_id: user.id
+                    }])
+
+                if (!error) {
+                    importedCategories++
+                }
+            }
+
+            // Import items
+            for (const item of backupData.items) {
+                const { error } = await supabase
+                    .from('item')
+                    .insert([{
+                        name: item.name,
+                        type: item.type,
+                        sub_type: item.sub_type,
+                        description: item.description,
+                        tags: item.tags,
+                        image_url: item.image_url,
+                        favorite: item.favorite,
+                        archived: item.archived,
+                        user_id: user.id
+                    }])
+
+                if (!error) {
+                    importedItems++
+                }
+            }
+
+            fetchCategories()
+            fetchItemCounts()
+
+            let message = `✅ Import complete!\n\n`
+            message += `Categories:\n- Imported: ${importedCategories}\n`
+            if (skippedCategories > 0) {
+                message += `- Skipped (duplicates): ${skippedCategories}\n`
+            }
+            message += `\nItems:\n- Imported: ${importedItems}`
+
+            alert(message)
+        } catch (error) {
+            console.error('Import error:', error)
+            alert('Error importing data: ' + error.message)
+        } finally {
+            if (jsonFileInputRef.current) {
+                jsonFileInputRef.current.value = ''
+            }
+        }
+    }
+
+
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
                 {/* Header */}
-                <div className="mb-6 sm:mb-8 text-center">
-                    <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800 mb-2">📚 My Categories</h1>
-                    <p className="text-sm sm:text-base text-gray-600 px-2">Choose a category to view or add items</p>
+                <div className="mb-6 sm:mb-8">
+                    <div className="text-center mb-4">
+                        <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800 mb-2">📚 My Categories</h1>
+                        <p className="text-sm sm:text-base text-gray-600 px-2">Choose a category to view or add items</p>
+                    </div>
+                    
+                    {/* Export/Import Buttons */}
+                    <div className="flex justify-center gap-2">
+                        {/* Export Button */}
+                        <button
+                            onClick={exportAllData}
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition active:scale-95 flex items-center gap-2"
+                        >
+                            📥 Export (JSON)
+                        </button>
+                        
+                        {/* Import Button */}
+                        <input
+                            ref={jsonFileInputRef}
+                            type="file"
+                            accept=".json"
+                            onChange={handleImportJSON}
+                            className="hidden"
+                        />
+                        <button
+                            onClick={() => jsonFileInputRef.current?.click()}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition active:scale-95 flex items-center gap-2"
+                        >
+                            📤 Import (JSON)
+                        </button>
+                    </div>
                 </div>
 
                 {/* Add Category Button/Form */}
