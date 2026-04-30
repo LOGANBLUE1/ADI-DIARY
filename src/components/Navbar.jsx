@@ -31,16 +31,16 @@ const Navbar = () => {
           {/* Desktop Navigation */}
           <div className="hidden md:flex space-x-4">
             <Link
-              to="/"
+              to="/my-shares"
               className="text-white hover:bg-white hover:bg-opacity-20 px-4 py-2 rounded-lg transition duration-200 font-medium"
             >
-              Categories
+              My Shares
             </Link>
             <Link
-              to="/all"
+              to="/shared-with-me"
               className="text-white hover:bg-white hover:bg-opacity-20 px-4 py-2 rounded-lg transition duration-200 font-medium"
             >
-              All Items
+              Shared With Me
             </Link>
             <button
               onClick={handleLogout}
@@ -70,18 +70,18 @@ const Navbar = () => {
         {isOpen && (
           <div className="md:hidden pb-4 space-y-2">
             <Link
-              to="/"
+              to="/my-shares"
               onClick={() => setIsOpen(false)}
               className="block text-white hover:bg-white hover:bg-opacity-20 px-4 py-3 rounded-lg transition duration-200 font-medium"
             >
-              Categories
+              My Shares
             </Link>
             <Link
-              to="/all"
+              to="/shared-with-me"
               onClick={() => setIsOpen(false)}
               className="block text-white hover:bg-white hover:bg-opacity-20 px-4 py-3 rounded-lg transition duration-200 font-medium"
             >
-              All Items
+              Shared With Me
             </Link>
             <button
               onClick={handleLogout}

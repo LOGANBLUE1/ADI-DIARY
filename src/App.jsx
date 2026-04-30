@@ -8,6 +8,8 @@ import Categories from "./pages/Categories"
 import CategoryItems from "./pages/CategoryItems"
 import ItemDetail from "./pages/ItemDetail"
 import Home from "./pages/Home"
+import SharedWithMe from "./pages/SharedWithMe"
+import MyShares from "./pages/MyShares"
 import Error from "./pages/Error"
 
 const App = () => {
@@ -55,6 +57,8 @@ const App = () => {
           <Route path="/category/:category" element={<CategoryItems/>} />
           <Route path="/item/:id" element={<ItemDetail/>} />
           <Route path="/all" element={<Home/>} />
+          <Route path="/shared-with-me" element={<SharedWithMe/>} />
+          <Route path="/my-shares" element={<MyShares/>} />
           <Route path="*" element={<Error/>} />
         </Routes>
       </div>
