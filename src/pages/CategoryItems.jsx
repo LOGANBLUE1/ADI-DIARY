@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from './../supabaseClient'
 import TagInput from '../components/TagInput'
-import { exportToJSON, exportToCSV, getExportFilename } from '../utils/exportUtils'
+import { exportToJSON, exportToCSV, getExportFilename, parseJSONFile, parseCSVFile, prepareImportData } from '../utils/exportUtils'
 
 function CategoryItems() {
   const { category } = useParams()
   const navigate = useNavigate()
+  const jsonFileInputRef = useRef(null)
+  const csvFileInputRef = useRef(null)
   const [items, setItems] = useState([])
   const [categoryIcon, setCategoryIcon] = useState('📁')
   const [name, setName] = useState('')
@@ -25,6 +27,8 @@ function CategoryItems() {
   const [selectedImage, setSelectedImage] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const [showExportDropdown, setShowExportDropdown] = useState(false)
+  const [showImportDropdown, setShowImportDropdown] = useState(false)
 
   useEffect(() => {
     async function fetchData() {
@@ -72,6 +76,24 @@ function CategoryItems() {
 
     fetchData()
   }, [category])
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!event.target.closest('.export-dropdown-container') && !event.target.closest('.import-dropdown-container')) {
+        setShowExportDropdown(false)
+        setShowImportDropdown(false)
+      }
+    }
+
+    if (showExportDropdown || showImportDropdown) {
+      document.addEventListener('click', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('click', handleClickOutside)
+    }
+  }, [showExportDropdown, showImportDropdown])
 
   // Selection functions
   const toggleSelection = (itemId) => {
@@ -202,6 +224,81 @@ function CategoryItems() {
     }
   }
 
+  // Import functions
+  const handleImportJSON = async (event) => {
+    const file = event.target.files[0]
+    if (!file) return
+
+    try {
+      const data = await parseJSONFile(file)
+      await importData(data, 'JSON')
+    } catch (error) {
+      alert('Error importing JSON: ' + error.message)
+    }
+    
+    // Reset file input
+    if (jsonFileInputRef.current) {
+      jsonFileInputRef.current.value = ''
+    }
+  }
+
+  const handleImportCSV = async (event) => {
+    const file = event.target.files[0]
+    if (!file) return
+
+    try {
+      const data = await parseCSVFile(file)
+      await importData(data, 'CSV')
+    } catch (error) {
+      alert('Error importing CSV: ' + error.message)
+    }
+    
+    // Reset file input
+    if (csvFileInputRef.current) {
+      csvFileInputRef.current.value = ''
+    }
+  }
+
+  const importData = async (data, format) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('You must be logged in to import data')
+        return
+      }
+
+      // Prepare data for import (will use current category if items don't specify type)
+      const preparedData = prepareImportData(data, user.id).map(item => ({
+        ...item,
+        type: category // Override type to current category
+      }))
+      
+      if (preparedData.length === 0) {
+        alert('No valid items to import')
+        return
+      }
+
+      if (!window.confirm(`Import ${preparedData.length} item(s) into ${category} from ${format} file?`)) {
+        return
+      }
+
+      // Insert into database
+      const { data: insertedData, error } = await supabase
+        .from('item')
+        .insert(preparedData)
+        .select()
+
+      if (error) {
+        throw error
+      }
+
+      alert(`Successfully imported ${insertedData.length} item(s) into ${category}!`)
+      refreshItems()
+    } catch (error) {
+      console.error('Import error:', error)
+      alert('Error importing data: ' + error.message)
+    }
+  }
 
   const handleImageSelect = (e) => {
     const file = e.target.files[0]
@@ -449,30 +546,102 @@ function CategoryItems() {
                 {showArchived ? '📦 Showing Archived' : '📋 Show Active Only'}
               </button>
               
-              {/* Export Buttons */}
-              <div className="flex gap-1 border-l pl-2">
+              {/* Export Dropdown */}
+              <div className="relative border-l pl-2 export-dropdown-container">
                 <button
                   onClick={() => {
-                    const filename = getExportFilename(`${category}_items`, filteredItems.length)
-                    exportToJSON(filteredItems, filename)
-                    alert(`Exported ${filteredItems.length} items from ${category} as JSON`)
+                    setShowExportDropdown(!showExportDropdown)
+                    setShowImportDropdown(false)
                   }}
-                  className="px-3 py-2 bg-green-500 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-green-600 transition active:scale-95"
-                  title="Export as JSON"
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition active:scale-95 flex items-center gap-2"
                 >
-                  📥 JSON
+                  📥 Export
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </button>
+                {showExportDropdown && (
+                  <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                    <button
+                      onClick={() => {
+                        const filename = getExportFilename(`${category}_items`, filteredItems.length)
+                        exportToJSON(filteredItems, filename)
+                        alert(`Exported ${filteredItems.length} items from ${category} as JSON`)
+                        setShowExportDropdown(false)
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-green-50 text-gray-700 transition flex items-center gap-2"
+                    >
+                      <span className="text-lg">📄</span>
+                      <span className="font-medium">JSON</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        const filename = getExportFilename(`${category}_items`, filteredItems.length)
+                        exportToCSV(filteredItems, filename)
+                        alert(`Exported ${filteredItems.length} items from ${category} as CSV`)
+                        setShowExportDropdown(false)
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-green-50 text-gray-700 transition flex items-center gap-2"
+                    >
+                      <span className="text-lg">📊</span>
+                      <span className="font-medium">CSV</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+              
+              {/* Import Dropdown */}
+              <div className="relative import-dropdown-container">
+                <input
+                  ref={jsonFileInputRef}
+                  type="file"
+                  accept=".json"
+                  onChange={handleImportJSON}
+                  className="hidden"
+                />
+                <input
+                  ref={csvFileInputRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={handleImportCSV}
+                  className="hidden"
+                />
                 <button
                   onClick={() => {
-                    const filename = getExportFilename(`${category}_items`, filteredItems.length)
-                    exportToCSV(filteredItems, filename)
-                    alert(`Exported ${filteredItems.length} items from ${category} as CSV`)
+                    setShowImportDropdown(!showImportDropdown)
+                    setShowExportDropdown(false)
                   }}
-                  className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-green-700 transition active:scale-95"
-                  title="Export as CSV"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition active:scale-95 flex items-center gap-2"
                 >
-                  📥 CSV
+                  📤 Import
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </button>
+                {showImportDropdown && (
+                  <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                    <button
+                      onClick={() => {
+                        jsonFileInputRef.current?.click()
+                        setShowImportDropdown(false)
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-blue-50 text-gray-700 transition flex items-center gap-2"
+                    >
+                      <span className="text-lg">📄</span>
+                      <span className="font-medium">JSON</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        csvFileInputRef.current?.click()
+                        setShowImportDropdown(false)
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-blue-50 text-gray-700 transition flex items-center gap-2"
+                    >
+                      <span className="text-lg">📊</span>
+                      <span className="font-medium">CSV</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

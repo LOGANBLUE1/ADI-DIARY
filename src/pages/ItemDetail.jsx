@@ -18,6 +18,7 @@ function ItemDetail() {
     const [imagePreview, setImagePreview] = useState(null)
     const [uploading, setUploading] = useState(false)
     const [removeExistingImage, setRemoveExistingImage] = useState(false)
+    const [showExportDropdown, setShowExportDropdown] = useState(false)
 
     useEffect(() => {
         async function fetchItem() {
@@ -41,6 +42,23 @@ function ItemDetail() {
 
         fetchItem()
     }, [id])
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (!event.target.closest('.export-dropdown-container')) {
+                setShowExportDropdown(false)
+            }
+        }
+
+        if (showExportDropdown) {
+            document.addEventListener('click', handleClickOutside)
+        }
+
+        return () => {
+            document.removeEventListener('click', handleClickOutside)
+        }
+    }, [showExportDropdown])
 
     async function toggleArchive() {
         const newArchivedState = !item.archived
@@ -360,30 +378,45 @@ function ItemDetail() {
                                         🗑️ Delete
                                     </button>
                                     
-                                    {/* Export Buttons */}
-                                    <div className="flex gap-1 border-l pl-2">
+                                    {/* Export Dropdown */}
+                                    <div className="relative border-l pl-2 export-dropdown-container">
                                         <button
-                                            onClick={() => {
-                                                const filename = getExportFilename(`item_${item.name.replace(/\s+/g, '_')}`, null)
-                                                exportToJSON(item, filename)
-                                                alert(`Exported "${item.name}" as JSON`)
-                                            }}
-                                            className="px-3 py-2 bg-green-500 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-green-600 transition active:scale-95"
-                                            title="Export as JSON"
+                                            onClick={() => setShowExportDropdown(!showExportDropdown)}
+                                            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition active:scale-95 flex items-center gap-2"
                                         >
-                                            📥 JSON
+                                            📥 Export
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                            </svg>
                                         </button>
-                                        <button
-                                            onClick={() => {
-                                                const filename = getExportFilename(`item_${item.name.replace(/\s+/g, '_')}`, null)
-                                                exportToCSV(item, filename)
-                                                alert(`Exported "${item.name}" as CSV`)
-                                            }}
-                                            className="px-3 py-2 bg-green-600 text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-green-700 transition active:scale-95"
-                                            title="Export as CSV"
-                                        >
-                                            📥 CSV
-                                        </button>
+                                        {showExportDropdown && (
+                                            <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                                                <button
+                                                    onClick={() => {
+                                                        const filename = getExportFilename(`item_${item.name.replace(/\s+/g, '_')}`, null)
+                                                        exportToJSON(item, filename)
+                                                        alert(`Exported "${item.name}" as JSON`)
+                                                        setShowExportDropdown(false)
+                                                    }}
+                                                    className="w-full text-left px-4 py-2 hover:bg-green-50 text-gray-700 transition flex items-center gap-2"
+                                                >
+                                                    <span className="text-lg">📄</span>
+                                                    <span className="font-medium">JSON</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        const filename = getExportFilename(`item_${item.name.replace(/\s+/g, '_')}`, null)
+                                                        exportToCSV(item, filename)
+                                                        alert(`Exported "${item.name}" as CSV`)
+                                                        setShowExportDropdown(false)
+                                                    }}
+                                                    className="w-full text-left px-4 py-2 hover:bg-green-50 text-gray-700 transition flex items-center gap-2"
+                                                >
+                                                    <span className="text-lg">📊</span>
+                                                    <span className="font-medium">CSV</span>
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                 </>
                             ) : (
